@@ -10,44 +10,8 @@ import typing
 import bpy
 import mathutils
 
+from .utils import print
 
-def console_get():
-    for area in bpy.context.screen.areas:
-        if area.type == 'CONSOLE':
-            for space in area.spaces:
-                if space.type == 'CONSOLE':
-                    for region in area.regions:
-                        if region.type == 'WINDOW':
-                            return area, space, region
-    return None, None, None
-
-
-def console_write(text):
-    area, space, region = console_get()
-    if area is None:
-        return
-
-    context_override = bpy.context.copy()
-    context_override.update({
-        "space": space,
-        "area": area,
-        "region": region,
-    })
-    with bpy.context.temp_override(**context_override):
-        for line in text.split("\n"):
-            bpy.ops.console.scrollback_append(text=line, type='OUTPUT')
-
-
-print = lambda x: console_write(str(x))
-
-def print_rot_loc_matrix(intro: str, data):
-    loc = mathutils.Vector([0,0,0])
-    if isinstance(data, mathutils.Quaternion):
-        rot = data
-    else:
-        loc, rot, _ = data.decompose()
-    rot = rot.to_euler()
-    print(f'{intro}:\tRX={math.degrees(rot.x):> z6.1f}\tRY={math.degrees(rot.y):> z6.1f}\tRZ={math.degrees(rot.z):> z6.1f}\tX={loc.x: 1.3f}\tY={loc.y: 1.3f}\tZ={loc.z: 1.3f}')
 
 
 class BonePropGroup(bpy.types.PropertyGroup):
@@ -61,8 +25,8 @@ bpy.types.PoseBone.dow_settings = bpy.props.PointerProperty(name='DOW settings',
 @dataclasses.dataclass
 class ChunkHeader:  # -- Structure Holding Chunk Header Data
     typeid: str = None
-    version: str = None
-    size: str = None
+    version: int = None
+    size: int = None
     name_length: int = None
     name_bytes: bytes = None
 
@@ -140,24 +104,27 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
 
 
 class WhmLoader:
-    def __init__(self, root: pathlib.Path):
+    def __init__(self, root: pathlib.Path, context=None):
         self.root = root
+        self.bpy_context = context
+        if self.bpy_context is None:
+            self.bpy_context = bpy.context
 
     def _reset(self):
         self.texture_count = 0
         self.texture_array = []
         self.bone_array = []
         self.xref_bone_array = []
-        self.created_bones_array = []  # -- Array To Store Created Bones
         self.blender_mesh_root = None
         self.bone_orig_transform = {}
         self.bone_transform = {}
         self.created_materials = {}
-        
+        self.created_meshes = {}
+
         self.armature = bpy.data.armatures.new('Armature')
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
         self.armature_obj.show_in_front = True
-        bpy.context.collection.objects.link(self.armature_obj)
+        self.bpy_context.collection.objects.link(self.armature_obj)
 
         self.messages = []
 
@@ -202,8 +169,8 @@ class WhmLoader:
                 _DOW_DXT_FLAGS = 0x000A1007  # _DEFAULT_FLAGS | _dwF_MIPMAP | _dwF_LINEAR
                 _ddsF_FOURCC = 0x00000004
                 _DOW_DDSCAPS_FLAGS = 0x401008 # _ddscaps_F_TEXTURE | _ddscaps_F_COMPLEX | _ddscaps_F_MIPMAP_S
-                fourCC = {8: b"DXT1", 10: "DXT3", 13: "DXT5"}[image_format]
-                header = struct.Struct("<4s 7l 44x 2l 4s 20x 2l 12x").pack(
+                fourCC = {8: b'DXT1', 10: b'DXT3', 13: b'DXT5'}[image_format]
+                header = struct.Struct('<4s 7l 44x 2l 4s 20x 2l 12x').pack(
                     b'DDS ', 124, _DOW_DXT_FLAGS, width, height, current_chunk.size, 0, num_mips, 
                     32, _ddsF_FOURCC, fourCC,  # pixel format
                     _DOW_DDSCAPS_FLAGS, 0,  # ddscaps
@@ -247,10 +214,10 @@ class WhmLoader:
             links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
 
             links.new(node_tex.outputs[0], node_final.inputs['Base Color'])
-            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset_{material_name}"][0]', fallback_value=0, index=0)
-            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset_{material_name}"][1]', fallback_value=0, index=1)
-            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling_{material_name}"][0]', fallback_value=1, index=0)
-            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling_{material_name}"][1]', fallback_value=1, index=1)
+            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][0]', fallback_value=0, index=0)
+            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][1]', fallback_value=0, index=1)
+            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][0]', fallback_value=1, index=0)
+            add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][1]', fallback_value=1, index=1)
             self.created_materials[material_path] = mat
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
@@ -262,19 +229,20 @@ class WhmLoader:
             bone = BoneData()  # -- Reset Bonedata Structure
             bone.name = reader.read_str()  # -- Read Bone Name
             bone.level = reader.read_one('<l')  # -- Read Bone Hierarchy Level
-            bone.pos = reader.read_struct('<fff')  # -- Read Bone X, Y and Z Positions
-            bone.rot = reader.read_struct('<ffff')  # -- Read Bone X, Y, Z and W Rotation
+            bone.pos = reader.read_struct('<3f')  # -- Read Bone X, Y and Z Positions
+            bone.rot = reader.read_struct('<4f')  # -- Read Bone X, Y, Z and W Rotation
             bone_array.append(bone)  #-- Add Bone To Bone Array
 
         if xref:
             return
 
         # ---< CREATE BONES >---
-        bpy.context.view_layer.objects.active = self.armature_obj
+        self.bpy_context.view_layer.objects.active = self.armature_obj
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
         bone_collection = self.armature.collections.new('Skeleton')
     
         bone_transforms = []
+        created_bones_array = []
 
         for bone_idx, bone in enumerate(bone_array):  # -- read each bone data
             # ---< CREATE BONE >---
@@ -295,10 +263,10 @@ class WhmLoader:
 
             for parent_idx in range(bone_idx - 1, -1, -1):  # -- Go Backwards From Current Bone To The Root
                 if bone_array[parent_idx].level < bone.level:  # -- Find First Bone With Smaller Bone Counter
-                    new_bone.parent = self.created_bones_array[parent_idx]  # -- Link To Parent
+                    new_bone.parent = created_bones_array[parent_idx]  # -- Link To Parent
                     break  # -- Exit Loop If Parent Is Found
             
-            self.created_bones_array.append(new_bone)  # -- Add New Bone To Created Bones Array
+            created_bones_array.append(new_bone)  # -- Add New Bone To Created Bones Array
 
             # ---< POSITION & ROTATION >---
 
@@ -308,7 +276,6 @@ class WhmLoader:
                 parent_mat = mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
             bone_transform = parent_mat @ orig_transform
             new_bone.matrix = bone_transform @ mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
-
             self.bone_orig_transform[bone.name] = orig_transform
             self.bone_transform[bone.name] = bone_transform
             bone_transforms.append(bone_transform)
@@ -316,11 +283,11 @@ class WhmLoader:
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_FOLDMSGR(self, reader: ChunkReader):  # Chunk Handler - Mesh Data
-        while (current_chunk := reader.read_header()):                                             # Read FOLDMSLC Chunks
+        while (current_chunk := reader.read_header()):                                # Read FOLDMSLC Chunks
             match current_chunk.typeid:
                 case "FOLDMSLC": self.CH_FOLDMSLC(reader, current_chunk.name, False)  # 	 - Mesh Data
-                case "DATADATA": self.CH_DATADATA(reader)                                          # -- DATADATA - Mesh List
-                case "DATABVOL":                                                                   # -- DATABVOL - Unknown
+                case "DATADATA": self.CH_DATADATA(reader)                             # -- DATADATA - Mesh List
+                case "DATABVOL":                                                      # -- DATABVOL - Unknown
                     reader.skip(current_chunk.size)
                     return True
 
@@ -330,25 +297,24 @@ class WhmLoader:
 
         num_markers = reader.read_one('<l')  # -- Read Number Of Markers
         for i in range(num_markers):  # -- Read All Markers
-
             marker_name = reader.read_str()  # -- Read Marker Name
             parent_name = reader.read_str()  # -- Read Parent Name
             transform = mathutils.Matrix()
             for row_idx in range(3):  # -- Read Matrix
-                transform[row_idx][:3] = reader.read_struct('<fff')
-            x, y, z = reader.read_struct('<fff')
+                transform[row_idx][:3] = reader.read_struct('<3f')
+            x, y, z = reader.read_struct('<3f')
 
-            fix = mathutils.Matrix()
             transform = mathutils.Matrix.Translation([-x, y, z]) @ transform
 
             marker = self.armature.edit_bones.new(marker_name)  # -- Create Bone and Set Name
             marker.head = (0, 0, 0)
-            # marker.tail = (0.6, 0, 0)
             marker.tail = (0.15, 0, 0)
             bone_collection.assign(marker)
             marker.color.palette = 'CUSTOM'
             marker.color.custom.normal = mathutils.Color([14, 255, 2]) / 255  # -- Set Color Of New Marker
 
+            if marker_name in self.armature.bones:
+                continue  # FIXME
             assert marker_name not in self.armature.bones
 
             parent = self.armature.edit_bones.get(parent_name)
@@ -358,6 +324,7 @@ class WhmLoader:
                 marker.parent = parent  # -- Set Parent Of New Marker
                 parent_mat = self.bone_transform[parent_name]
             marker.matrix =  parent_mat @ transform @ mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
+            self.bone_transform[marker_name] = parent_mat @ transform
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
@@ -367,7 +334,7 @@ class WhmLoader:
 
         animation_name = current_chunk.name
         num_frames = reader.read_one('<l')  # -- Read Number Of Frames
-        reader.skip(4)  # -- Skip 4 Bytes (Unknown)
+        duration = reader.read_one('<f')  # num_frames / 30
 
         if animation_name in bpy.data.actions:
             animation = bpy.data.actions[animation_name]
@@ -391,6 +358,7 @@ class WhmLoader:
         num_bones = reader.read_one('<l')  # -- Read Number Of Bones
         for bone_idx in range(num_bones):  # -- Read Bones
             bone_name = reader.read_str()  # -- Read Bone Name
+            # bone_idx = self.name_2_bone_idx[bone_name]
             bone = self.armature_obj.pose.bones[bone_name]
             orig_transform = self.bone_orig_transform[bone_name]
 
@@ -398,7 +366,7 @@ class WhmLoader:
             keys_pos = reader.read_one('<l')  # -- Read Number Of Postion Keys
             for _ in range(keys_pos):  # -- Read Postion Keys
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
-                x, y, z = reader.read_struct('<fff')  # -- Read Position
+                x, y, z = reader.read_struct('<3f')  # -- Read Position
                 new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, y, z]))
 
                 new_mat = delta.inverted() @ orig_transform.inverted() @ new_transform @ delta
@@ -407,11 +375,11 @@ class WhmLoader:
                 self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].location', frame=frame, group=bone_name)
 
             keys_rot = reader.read_one('<l')  # -- Read Number Of Rotation Keys
-            orig_rot = self.bone_orig_transform[bone.name].to_quaternion()
+            orig_rot = self.bone_orig_transform[bone_name].to_quaternion()  # FIXME
             delta = delta.to_quaternion()
-            for _ in range(keys_rot):	
+            for _ in range(keys_rot):
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
-                key_rot = reader.read_struct('<ffff')  # -- Read Rotation X, Y, Z, W
+                key_rot = reader.read_struct('<4f')  # -- Read Rotation X, Y, Z, W
                 new_transform = mathutils.Quaternion([key_rot[3], key_rot[0], -key_rot[1], -key_rot[2]])
 
                 new_rot = delta.inverted() @ orig_rot.inverted() @ new_transform @ delta
@@ -429,25 +397,29 @@ class WhmLoader:
         # ---< MESHES & TEXTURES >---
 
         visible_meshes = set()
-
         num_meshes = reader.read_one('<l')  # -- Read Number Of Meshes
 
         for i in range(num_meshes):
             obj_name = reader.read_str()  # -- Read Mesh Name
-            mesh = self.blender_mesh_root.all_objects.get(obj_name)
-            if mesh is not None:  # -- Mesh
-                reader.skip(12)  # -- Skip 12 Bytes (Unknown)
+            mode = reader.read_one('<l')
+            if mode == 2:  # -- Mesh
+                # mesh = self.blender_mesh_root.all_objects[obj_name]
+                reader.skip(8)  # -- Skip 8 Bytes (Unknown, zeros)
                 keys_vis = reader.read_one('<l') - 1  # -- Read Number Of Visibility Keys
-                reader.skip(4)  # -- Skip 4 Bytes (Unknown)
+                reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 force_invisible = reader.read_one('<f')  #-- Read ForceInvisible Property
+                force_invisible_prop_name = f'force_invisible__{obj_name}'
+                is_invisible = False
                 if force_invisible == 0:
                     if obj_name not in visible_meshes:
-                        setup_property(mesh, 'ForceInvisible', True, description='Force the mesh to be invisible in the current animation')  # -- Set ForceInvisible Property. Usage: https://dawnofwar.org.ru/publ/27-1-0-177
+                        is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
+                setup_property(self.armature_obj, force_invisible_prop_name, is_invisible, description='Force the mesh to be invisible in the current animation')  # -- Set ForceInvisible Property. Usage: https://dawnofwar.org.ru/publ/27-1-0-177
+                self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
 
                 if keys_vis:
-                    prop_name = f'visibility_{obj_name}'
+                    prop_name = f'visibility__{obj_name}'
                     setup_property(self.armature_obj, prop_name, 1.0, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
                     self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
                 
@@ -456,27 +428,23 @@ class WhmLoader:
                     key_vis = reader.read_one('<f')  # -- Read Visibility
                     self.armature_obj[prop_name] = key_vis
                     self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=obj_name)
-            else:  # -- Texture
-                reader.skip(8)  # -- Skip 8 Bytes (Unknown)
+            elif mode == 0:  # -- Texture
+                reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 tex_anim_type = reader.read_one('<l')  # -- 1-U 2-V 3-TileU 4-TileV
                 keys_tex = reader.read_one('<l')  # -- Read Number Of Texture Keys
                 material = self.created_materials.get(obj_name)
                 if material is not None:
                     if tex_anim_type in (1, 2):
-                        prop_name = f'uv_offset_{material.name}'
+                        prop_name = f'uv_offset__{material.name}'
                         setup_property(self.armature_obj, prop_name, [0., 0.], default=[0., 0.], description='Hack for animatiing UV offset')
                     else:
-                        prop_name = f'uv_tiling_{material.name}'
+                        prop_name = f'uv_tiling__{material.name}'
                         setup_property(self.armature_obj, prop_name, [1., 1.], default=[1., 1.], description='Hack for animatiing UV tiling')
-                
                 for j in range(keys_tex):  # -- Read Texture Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
-                    key_tex = reader.read_one('<f')  # -- Read Offset
-                    if material is None:  # Cannot find texture
-                        continue
+                    key_tex = reader.read_one('<f')  # -- Read Offsetf'["force_invisible_{mesh_name}"]
                     match tex_anim_type:
                         case 1:
-                            raise Exception('TEST ME')
                             self.armature_obj[prop_name][0] = key_tex
                             self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=0)
                         case 2:
@@ -490,14 +458,16 @@ class WhmLoader:
                             raise Exception('TEST ME')
                             self.armature_obj[prop_name][1] = -key_tex
                             self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=1)
-
         # ---< CAMERA >---
 
-        if current_chunk.version == 2:  # -- Read Camera Data If DATADATA Chunk Version 2
+        if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
+            if num_cams:
+                self.messages.append(('INFO', 'We have cameras!'))
 
             for k in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
+                self.messages.append(('INFO', f'CAM NAME {cam_name}'))
                 cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys (?)
                 reader.skip(cam_pos_keys * 16)  # -- Skip Camera Position Keys
                 cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys (?)
@@ -516,47 +486,51 @@ class WhmLoader:
         #---< DATADATA CHUNK >---
 
         current_chunk = reader.read_header()  # -- read DATADATA header
-        reader.skip(13)  # -- skip 13 bytes (unknown)
+        rsv0_a, flag, unk, rsv0_b = reader.read_struct('<l b l l') # -- skip 13 bytes (unknown)
+        assert rsv0_a == 0 and rsv0_b == 0
+        # print(f'{mesh_name} ({self.num_meshes}): {flag}, {unk} {len(self.bone_array)}')
+        # if unk < len(self.bone_array):
+        #     print(f'BONE GUESS {self.bone_array[unk].name}')
         num_skin_bones = reader.read_one('<l')  # -- get number of bones mesh is weighted to
-        
+
         #---< SKIN BONES >---
 
         skin_bone_array = []  # -- array to store skin bone names
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
             skin_bone_array.append(bone_name)
-            reader.skip(4)  # -- skip 4 bytes (unknown)
-        
+            bone_idx = reader.read_one('<l')
+            assert self.bone_array[bone_idx].name == bone_name
+
         #---< VERTICES >---
 
         num_vertices = reader.read_one('<l')  # -- read number of vertices
-        reader.skip(4)  # -- skip 4 bytes (unknown)
+        vertex_size_id = reader.read_one("<l")  # 37 or 39
+        assert (num_skin_bones != 0) * 2 == vertex_size_id - 37
 
         vert_array = []       # -- array to store vertex data
         for _ in range(num_vertices):
-            x, z, y = reader.read_struct('<fff')
+            x, z, y = reader.read_struct('<3f')
             vert_array.append((-x, -y, z))
 
         #---< SKIN >---
 
         bone_array = self.xref_bone_array if xref else self.bone_array
-        has_explicit_bones = False
 
         skin_vert_array = []  # -- array to store skin vertices
         if num_skin_bones:
             for _ in range(num_vertices):
                 skin_vert = SkinVertice()  # -- Reset Structure
-                skin_vert.weights[:3] = reader.read_struct('<fff')  # -- Read 1st, 2nd and 3rd Bone Weight
+                skin_vert.weights[:3] = reader.read_struct('<3f')  # -- Read 1st, 2nd and 3rd Bone Weight
                 skin_vert.weights[3] = 1 - sum(skin_vert.weights[:3])  # -- Calculate 4th Bone Weight
 
                 # -- Read Bones
-                for bone_slot in range(4): 
-                    bone_idx = reader.read_one('<b')
-                    if bone_idx == -1:
-                        skin_vert.bone[bone_slot] = bone_idx
+                for bone_slot in range(4):
+                    bone_idx = reader.read_one('<B')
+                    if bone_idx == 255:
+                        skin_vert.bone[bone_slot] = None
                         continue
-                    skin_vert.bone[bone_slot] = skin_bone_array.index(bone_array[bone_idx].name)
-                    has_explicit_bones = True
+                    skin_vert.bone[bone_slot] = bone_array[bone_idx].name
 
                 # -- Add Vertex To Array
                 skin_vert_array.append(skin_vert)
@@ -565,7 +539,7 @@ class WhmLoader:
 
         normal_array = []     # -- array to store normal data
         for _ in range(num_vertices):
-            x, z, y = reader.read_struct('<fff')
+            x, z, y = reader.read_struct('<3f')
             normal_array.append(mathutils.Vector([-x, -y, z]))
 
         #---< UVW MAP >---
@@ -573,7 +547,7 @@ class WhmLoader:
         face_array = []       # -- array to store face data
         uv_array = []        # -- array to store texture coordinates
         for _ in range(num_vertices):
-            u, v = reader.read_struct('<ff')
+            u, v = reader.read_struct('<2f')
             uv_array.append([u, 1 - v])
 
         #-- skip to texture path
@@ -597,7 +571,7 @@ class WhmLoader:
 
             #-- read faces connected with this material
             for __ in range(num_faces):	
-                x, z, y = reader.read_struct('<hhh')
+                x, z, y = reader.read_struct('<3h')
                 face_array.append((x, y, z))
                 if material:
                     matid_array.append(len(materials) - 1)
@@ -628,11 +602,12 @@ class WhmLoader:
         new_mesh = bpy.data.meshes.new(mesh_name)
         new_mesh.from_pydata(vert_array, [], face_array)  # -- Create New Mesh
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
-            has_errors = new_mesh.validate(verbose=True)
-        
+        # TODO capture output
+        # Note: redirect_stdout doesn't work. See https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
+        has_errors = new_mesh.validate(verbose=True)
+
         if has_errors:
-            self.messages.append(('WARNING', f'Mesh {mesh_name} has some errors: {f.getvalue()}'))
+            self.messages.append(('WARNING', f'Mesh {mesh_name} has some errors'))
 
         #---< MESH PROPERTIES >---
 
@@ -645,46 +620,22 @@ class WhmLoader:
         new_mesh.polygons.foreach_set('material_index', matid_array)
 
         obj = bpy.data.objects.new(mesh_name, new_mesh)
-        add_driver(obj, 'color', self.armature_obj, f'["visibility_{mesh_name}"]', fallback_value=1.0, index=3)
+        add_driver(obj, 'color', self.armature_obj, f'["visibility__{mesh_name}"]', fallback_value=1.0, index=3)
+        # add_driver(obj, 'hide_viewport', self.armature_obj, f'["force_invisible__{mesh_name}"]', fallback_value=False)  # works weirdly
         obj.parent = self.armature_obj
+        self.created_meshes[mesh_name] = obj
 
         #---< SET BONE MESH >---
 
         vertex_groups = {}
-
-        if has_explicit_bones:
-            for vert_idx, vert in enumerate(skin_vert_array):
-                for bone_weight, bone_idx in zip(vert.weights, vert.bone):
-                    if bone_idx == -1 or bone_weight == 0:
-                        continue
-                    bone_name = skin_bone_array[bone_idx]
-                    vertex_group =  vertex_groups.get(bone_name)
-                    if vertex_group is None:
-                        vertex_group = vertex_groups[bone_name] = obj.vertex_groups.new(name=bone_name)
-                    vertex_group.add([vert_idx], bone_weight, 'REPLACE')
-        else:
-            name = mesh_name
-            alt_name = None
-            if "_obj_" in name:  # IG Marauder has this and no bone weights
-                name = name.replace("_obj_", "_")
-            # HACK for tanks
-            if "tread_l" in name:
-                alt_name = "left_tread"
-            elif "tread_r" in name:
-                alt_name = "right_tread"
-
-            bone_name = None
-            if name in self.armature.bones:
-                bone_name = name
-            elif alt_name and alt_name in self.armature.bones:
-                bone_name = alt_name
-
-            if bone_name:
+        for vert_idx, vert in enumerate(skin_vert_array):
+            for bone_weight, bone_name in zip(vert.weights, vert.bone):
+                if bone_name is None or bone_weight == 0:
+                    continue
                 vertex_group =  vertex_groups.get(bone_name)
                 if vertex_group is None:
                     vertex_group = vertex_groups[bone_name] = obj.vertex_groups.new(name=bone_name)
-                vertex_group.add(list(range(num_vertices)), 1.0, 'REPLACE')           
-        
+                vertex_group.add([vert_idx], bone_weight, 'REPLACE')
         if skin_bone_array == [mesh_name]:
             setup_property(new_mesh, 'ForceSkinning', True, description='Force a linked mesh to be treated as 100% skinned in the exporter')  # -- Mesh Is Weighted To Itself -> Force Skinning (https://dow.finaldeath.co.uk/rdnwiki/www.relic.com/rdn/wiki/ModTools/ToolsReleaseNotes.html)
             # print(f'ForceSkinning {mesh_name}')
@@ -747,7 +698,7 @@ class WhmLoader:
 
         if self.blender_mesh_root is None:
             self.blender_mesh_root = bpy.data.collections.new('Meshes')
-            bpy.context.scene.collection.children.link(self.blender_mesh_root)
+            self.bpy_context.scene.collection.children.link(self.blender_mesh_root)
 
         armature_mod = obj.modifiers.new('Skeleton', "ARMATURE")
         armature_mod.object = self.armature_obj
@@ -766,9 +717,10 @@ class WhmLoader:
             mesh_name = reader.read_str()  # -- Read Mesh Name
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
             if str(mesh_path) != '.':
-                print(f'{mesh_path=}')
-                pass
-                # raise Exception()
+                print(f'EXTERNAL MESH {mesh_path=}')
+                filename = self.root / f'{mesh_path}.whm'
+                if filename.exists():
+                    raise Exception(f'FIX LOADING {filename}')
                 # --filename = (dowpath + "/" + modfolder + "/Data/" + mesh_path + ".whm")
                 # print(f'{mesh_name=} {mesh_path=}')
                 # filename = pathlib.Path("../base_mesh") / mesh_path.stem / ".whm"
@@ -819,8 +771,11 @@ class WhmLoader:
                 # )	
                 # else messagebox "Can't open file!"															-- Show Error Msg Box
 
-            mesh_parent = reader.read_one('<l')  # -- Read Mesh Parent
-            # print(f'{mesh_parent=}')
+            mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
+            if mesh_parent_idx != -1:
+                mesh = self.created_meshes[mesh_name]
+                vertex_group = mesh.vertex_groups.new(name=self.bone_array[mesh_parent_idx].name)
+                vertex_group.add(list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
             # if mesh_parent != -1 then
                 # mesh = getNodeByName mesh_name exact:true													-- Get Mesh Node From The Scene
                 # if mesh == created_bones_array[mesh_parent+1] then setUserProp mesh "ForceSkinning" "Yes"	-- Set Force Skinning If Parent Is The Same As Mesh
@@ -840,8 +795,8 @@ class WhmLoader:
                 case "DATASSHR": self.CH_DATASSHR(reader)  # DATASSHR - Texture Data
                 case "FOLDTXTR": 
                     self.CH_FOLDTXTR(reader, current_chunk.name, internal=True)  # FOLDTXTR - Internal Texture
-                    raise Exception
-                case "DATASKEL": self.CH_DATASKEL(reader, False)  # FOLDMSLC - Skeleton Data
+                    raise Exception('LOAD INTERNAL TEXTURE')
+                case "DATASKEL": self.CH_DATASKEL(reader, False)  # DATASKEL - Skeleton Data
                 case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
                 case "DATAMARK": self.CH_DATAMARK(reader)  # DATAMARK - Marker Data
                 case "FOLDANIM": self.CH_FOLDANIM(reader)  # FOLDANIM - Animations
