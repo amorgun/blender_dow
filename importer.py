@@ -121,7 +121,6 @@ class WhmLoader:
         self.created_materials = {}
         self.created_meshes = {}
         self.model_root_collection = None
-        # self.material_textures = {}
 
         self.armature = bpy.data.armatures.new('Armature')
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
@@ -422,7 +421,8 @@ class WhmLoader:
                 new_transform = mathutils.Quaternion([key_rot[3], key_rot[0], -key_rot[1], -key_rot[2]])
 
                 new_rot = delta.inverted() @ orig_rot.inverted() @ new_transform @ delta
-                bone.rotation_quaternion = new_rot.to_matrix().to_quaternion()  # Fix random axis flipping
+                new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
+                bone.rotation_quaternion = new_rot
                 self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].rotation_quaternion', frame=frame, group=bone_name)
             stale = reader.read_one('<b')  # -- Read Stale Property
             # if stale == 0 then setUserProp bone "Stale" "Yes"											-- Set Stale Property
@@ -722,7 +722,6 @@ class WhmLoader:
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
             if mesh_path and str(mesh_path) != '.':
                 filename = self.root / 'Data' / mesh_path.with_suffix('.whm')
-                print(f'LOAD {filename}')
                 if filename.exists():
                     self.messages.append(('INFO', f'Loading {filename}'))
                     with filename.open('rb') as f:
@@ -804,4 +803,8 @@ def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
     with target_path.open('rb') as f:
         reader = ChunkReader(f)
         loader = WhmLoader(module_root)
-        loader.load(reader)
+        try:
+            loader.load(reader)
+        finally:
+            for _, msg in loader.messages:
+                print(msg)
