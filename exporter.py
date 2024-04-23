@@ -86,7 +86,7 @@ class WhmExporter:
             self.write_textures(writer)
             self.write_skel(writer)
             self.write_meshes(writer)
-            self.write_mark(writer)
+            self.write_marks(writer)
             self.write_anims(writer)
 
     def write_relic_chunky(self, writer: ChunkWriter):
@@ -245,7 +245,7 @@ class WhmExporter:
             with writer.start_chunk('DATABVOL'):
                 writer.write_struct('<b60x', 1)  # TODO
 
-    def write_mark(self, writer: ChunkWriter):
+    def write_marks(self, writer: ChunkWriter):
         if not bpy.data.armatures:
             return
         armature = bpy.data.armatures[0]
@@ -271,36 +271,34 @@ class WhmExporter:
             self.messages.append(('WARNING', 'Something is very wrong with animations'))
         for action in bpy.data.actions:
             anim_root = anim_objects[0]
-            dbg_name = 'melee_2'
             anim_sections = collections.defaultdict(dict)
             prop_fcurves = collections.defaultdict(dict)
-            if action.name == dbg_name or True:
-                for fcurve in action.fcurves:
-                    if fcurve.is_empty:
-                        continue
-                    attr = None
-                    if fcurve.data_path.endswith(']'):
-                        path, attr = fcurve.data_path.rsplit('[', 1)
-                        attr = attr[1:-2]
-                        if '__' in attr:
-                            prop_group, obj_name = attr.split('__', 1)
-                            prop_fcurves[prop_group].setdefault(obj_name, []).append(fcurve)
-                    else:
-                        for suffix in ['.rotation_quaternion', '.location']:
-                            if fcurve.data_path.endswith(suffix):
-                                path = fcurve.data_path[:-len(suffix)]
-                                attr = suffix[1:]
-                                break
-                    if not attr:
-                        continue
-                    anim_obj = anim_root.path_resolve(path) if path else anim_root
-                    anim_sections[attr].setdefault(anim_obj, []).append(fcurve)
+            for fcurve in action.fcurves:
+                if fcurve.is_empty:
+                    continue
+                attr = None
+                if fcurve.data_path.endswith(']'):
+                    path, attr = fcurve.data_path.rsplit('[', 1)
+                    attr = attr[1:-2]
+                    if '__' in attr:
+                        prop_group, obj_name = attr.split('__', 1)
+                        prop_fcurves[prop_group.lower()].setdefault(obj_name, []).append(fcurve)
+                else:
+                    for suffix in ['.rotation_quaternion', '.location']:
+                        if fcurve.data_path.endswith(suffix):
+                            path = fcurve.data_path[:-len(suffix)]
+                            attr = suffix[1:]
+                            break
+                if not attr:
+                    continue
+                anim_obj = anim_root.path_resolve(path) if path else anim_root
+                anim_sections[attr].setdefault(anim_obj, []).append(fcurve)
 
             with writer.start_chunk('FOLDANIM', version=3, name=action.name):
                 with writer.start_chunk('DATADATA', version=2, name=action.name):
                     writer.write_struct('<l', int(action.frame_end) + 1)
                     writer.write_struct('<f', (action.frame_end + 1) / 30)
-                    bones = {b for k in ['rotation_quaternion', 'location', 'Stale'] for b in anim_sections[k]}
+                    bones = {b for k in ['rotation_quaternion', 'location', 'stale'] for b in anim_sections[k]}
                     bones = sorted(bones, key=lambda x: self.bone_to_idx[x.name])
                     writer.write_struct('<l', len(bones))
 

@@ -48,12 +48,19 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         maxlen=255,
     )
 
+    new_project: bpy.props.BoolProperty(
+        name='New project',
+        description='Create a new project for the imported model',
+        default=True,
+    )
+
     def execute(self, context):
-        bpy.ops.wm.read_homefile(app_template='')
+        if self.new_project:
+            bpy.ops.wm.read_homefile(app_template='')
+            for mesh in bpy.data.meshes:
+                bpy.data.meshes.remove(mesh)
         preferences = context.preferences
         addon_prefs = preferences.addons[__package__].preferences
-        for mesh in bpy.data.meshes:
-            bpy.data.meshes.remove(mesh)
         with open(self.filepath, 'rb') as f:
             reader = importer.ChunkReader(f)
             loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), context=context)
