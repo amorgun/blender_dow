@@ -190,7 +190,7 @@ class WhmExporter:
                         writer.write_struct('<l', 39 if obj.vertex_groups else 37)
                         for v in mesh.vertices:
                             writer.write_struct('<3f', -v.co.x, v.co.z, -v.co.y)
-                        # TODO implicit bones
+                        # TODO xrefs
                         if obj.vertex_groups:
                             for v in mesh.vertices:
                                 groups = sorted(v.groups, key=lambda x: -x.weight)
@@ -241,9 +241,39 @@ class WhmExporter:
                             writer.write_struct('<8x')
                         writer.write_struct('<lll', 0, 0, 0)
                     with writer.start_chunk('DATABVOL'):
-                        writer.write_struct('<b60x', 1)  # TODO
+                        min_corner = mathutils.Vector([
+                            min(-v.co.x for v in mesh.vertices),
+                            min(v.co.z for v in mesh.vertices),
+                            min(-v.co.y for v in mesh.vertices),
+                        ])
+                        max_corner = mathutils.Vector([
+                            max(-v.co.x for v in mesh.vertices),
+                            max(v.co.z for v in mesh.vertices),
+                            max(-v.co.y for v in mesh.vertices),
+                        ])
+                        writer.write_struct(
+                            '<b 3f 3f 9f',
+                            1, *(max_corner + min_corner) / 2,
+                            *(max_corner - min_corner) / 2,
+                            *[i for r in mathutils.Matrix.Identity(3) for i in r]
+                        )
             with writer.start_chunk('DATABVOL'):
-                writer.write_struct('<b60x', 1)  # TODO
+                min_corner = mathutils.Vector([
+                    min(-v.co.x for mesh in bpy.data.meshes for v in mesh.vertices),
+                    min(v.co.z for mesh in bpy.data.meshes for v in mesh.vertices),
+                    min(-v.co.y for mesh in bpy.data.meshes for v in mesh.vertices),
+                ])
+                max_corner = mathutils.Vector([
+                    max(-v.co.x for mesh in bpy.data.meshes for v in mesh.vertices),
+                    max(v.co.z for mesh in bpy.data.meshes for v in mesh.vertices),
+                    max(-v.co.z for mesh in bpy.data.meshes for v in mesh.vertices),
+                ])
+                writer.write_struct(
+                    '<b 3f 3f 9f',
+                    1, *(max_corner + min_corner) / 2,
+                    *(max_corner - min_corner) / 2,
+                    *[i for r in mathutils.Matrix.Identity(3) for i in r]
+                )
 
     def write_marks(self, writer: ChunkWriter):
         if not bpy.data.armatures:
@@ -346,6 +376,7 @@ class WhmExporter:
 
                         writer.write_struct('<l', len(rot_frames))
                         curr_rot = bone.bone.matrix_local.to_quaternion()
+                        prev_rot = curr_rot
                         for frame in sorted(rot_frames):
                             writer.write_struct('<f', frame / max(action.frame_end, 1))
                             frame_data = rot_frames[frame]
@@ -357,6 +388,8 @@ class WhmExporter:
                             
                             relative_matrix = parent_mat.inverted() @ bone.bone.matrix_local @ curr_rot.to_matrix().to_4x4() @ delta.inverted()
                             loc, rot, _ = relative_matrix.decompose()
+                            rot.make_compatible(prev_rot)
+                            prev_rot = rot
                             writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
 
                         stale_flag = int(bone not in anim_sections['Stale'])
@@ -418,5 +451,9 @@ def export_whm(path: str):
         writer = ChunkWriter(f)
         paths = FileDispatcher(pathlib.Path(path).with_suffix(''), is_flat=True)
         exporter = WhmExporter(paths)
-        exporter.export(writer, object_name=pathlib.Path(bpy.data.filepath).stem, meta='amorgun')
-        paths.dump_info()
+        try:
+            exporter.export(writer, object_name=pathlib.Path(bpy.data.filepath).stem, meta='amorgun')
+            paths.dump_info()
+        finally:
+            for _, msg in exporter.messages:
+                print(msg)

@@ -14,12 +14,12 @@ from .utils import print
 from . import textures
 
 
-class BonePropGroup(bpy.types.PropertyGroup):
-    stale: bpy.props.BoolProperty(name="Stale", default=False)
+# class BonePropGroup(bpy.types.PropertyGroup):
+#     stale: bpy.props.BoolProperty(name="Stale", default=False)
 
-bpy.utils.register_class(BonePropGroup)
+# bpy.utils.register_class(BonePropGroup)
 
-bpy.types.PoseBone.dow_settings = bpy.props.PointerProperty(name='DOW settings', type=BonePropGroup)
+# bpy.types.PoseBone.dow_settings = bpy.props.PointerProperty(name='DOW settings', type=BonePropGroup)
 
 
 @dataclasses.dataclass
@@ -125,7 +125,6 @@ class WhmLoader:
         self.armature = bpy.data.armatures.new('Armature')
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
         self.armature_obj.show_in_front = True
-        # self.bpy_context.collection.objects.link(self.armature_obj)
 
         self.messages = []
 
@@ -137,18 +136,16 @@ class WhmLoader:
 
             if not full_texture_path.exists():
                 self.messages.append(('WARNING', f'Cannot find texture {full_texture_path}'))
-                print(f'Cannot find texture {full_texture_path}')
                 return
             
             with full_texture_path.open('rb') as f:
-                self.load_texture(ChunkReader(f))  # -- create new material
+                self.load_rsh(ChunkReader(f))  # -- create new material
 
-    def load_texture(self, reader: ChunkReader):
+    def load_rsh(self, reader: ChunkReader):
         reader.skip(24)  # Skip 'Relic Chunky' Header
         current_chunk = reader.read_header()  # Skip 'Folder SHRF' Header
         loaded_textures = {}
         while current_chunk := reader.read_header():
-            print(f'CHUNK {current_chunk.typeid}')
             match current_chunk.typeid:
                 case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name, internal=False)  # FOLDTXTR - Internal Texture
                 case 'FOLDSHDR': self.CH_FOLDSHDR(reader, current_chunk.name, loaded_textures)
@@ -218,7 +215,7 @@ class WhmLoader:
         links.new(node_object_info.outputs['Alpha'], node_calc_alpha.inputs[0])
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
 
-        num_textures = 0
+        created_tex_nodes = {}
         for _ in range(6):
             current_chunk = reader.read_header()  # DATACHAN
             assert current_chunk.typeid == 'DATACHAN'
@@ -234,29 +231,32 @@ class WhmLoader:
                     # print(f'REF {ref_idx}: ({x}, {y})')
             if channel_name == '':
                 continue
-            node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            node_tex.image = loaded_textures[channel_name]
-            node_tex.location = -430, 400 - 320 * num_textures
-            num_textures += 1
+            node_tex = created_tex_nodes.get(channel_name)
+            if not node_tex:
+                node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
+                node_tex.image = loaded_textures[channel_name]
+                node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
+                created_tex_nodes[channel_name] = node_tex
             links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
-            if channel_idx == 0:
+            if channel_idx in (0, 4):
                 links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
-            input_names = {
-                0: ['Base Color', 'Emission Color'],  # Texture
-                1: ['Specular IOR Level'],  # Specularity
-                2: ['Specular Tint'], # Reflections
-                3: ['Emission Strength'],  # SelfIllum
-                # 4: ['Alpha'],  # Opacity
-            }[channel_idx]
-            for i in input_names:
-                links.new(node_tex.outputs[0], node_final.inputs[i])
+            if channel_idx != 4:
+                input_names = {
+                    0: ['Base Color', 'Emission Color'],  # Texture
+                    1: ['Specular IOR Level'],  # Specularity
+                    2: ['Specular Tint'], # Reflections
+                    3: ['Emission Strength'],  # SelfIllum
+                    4: ['Alpha'],  # Opacity
+                }[channel_idx]
+                for i in input_names:
+                    links.new(node_tex.outputs[0], node_final.inputs[i])
+
 
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][0]', fallback_value=0, index=0)
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][1]', fallback_value=0, index=1)
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][0]', fallback_value=1, index=0)
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][1]', fallback_value=1, index=1)
         self.created_materials[material_path] = mat
-
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
@@ -326,7 +326,9 @@ class WhmLoader:
                 case "FOLDMSLC": self.CH_FOLDMSLC(reader, current_chunk.name, False)  # 	 - Mesh Data
                 case "DATADATA": self.CH_DATADATA(reader)                             # -- DATADATA - Mesh List
                 case "DATABVOL":                                                      # -- DATABVOL - Unknown
-                    reader.skip(current_chunk.size)
+                    bbox_flag, *bbox_center = reader.read_struct('<b3f')
+                    bbox_size = reader.read_struct('<3f')
+                    bbox_rot_mat = reader.read_struct('<9f')
                     return True
 
     def CH_DATAMARK(self, reader: ChunkReader):
@@ -386,10 +388,6 @@ class WhmLoader:
         animation.frame_range = 0, num_frames - 1  # -- Set Start & End Frames
 
         # ---< BONES >---
-
-        # Debug me
-        #    die frame 159
-        # bone bloodthirster_bone_7_wing_l
 
         # debug vis_no_arms
 
@@ -456,7 +454,13 @@ class WhmLoader:
                     visible_meshes.add(obj_name)
                 setup_property(self.armature_obj, force_invisible_prop_name, is_invisible, description='Force the mesh to be invisible in the current animation')  # -- Set ForceInvisible Property. Usage: https://dawnofwar.org.ru/publ/27-1-0-177
                 self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
+                prop_name = f'visibility__{obj_name}'
+                # if force_invisible == 0:
+                # setup_property(self.armature_obj, prop_name, force_invisible, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
+                # self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
 
+                # if animation_name == 'turn_left':
+                #     print(f'{obj_name} {force_invisible} {keys_vis}')
                 if keys_vis:
                     prop_name = f'visibility__{obj_name}'
                     setup_property(self.armature_obj, prop_name, 1.0, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
@@ -631,7 +635,9 @@ class WhmLoader:
         #---< DATABVOL CHUNK >---
 
         current_chunk = reader.read_header()  # -- Read DATABVOL Header
-        reader.skip(current_chunk.size)  # -- Skip DATABVOL Chunk
+        bbox_flag, *bbox_center = reader.read_struct('<b3f')
+        bbox_size = reader.read_struct('<3f')
+        bbox_rot_mat = reader.read_struct('<9f')
 
         #---------------------
         #---[ CREATE MESH ]---
@@ -709,14 +715,7 @@ class WhmLoader:
         self.blender_mesh_root.objects.link(obj)
 
     def CH_DATADATA(self, reader: ChunkReader):  # - Chunk Handler - Sub Chunk Of FOLDMSGR - Mesh List
-        # chunk = reader.read_header()  # -- Currently Processed Chunk
-
-    # maxpath = getINISetting (getMAXIniFile()) "Directories" "Startup Scripts"
-    # dowpath = getINISetting (maxpath + "\WHMImport.ini") "Directories" "DawnOfWar"
-    # modfolder = getINISetting (maxpath + "\WHMImport.ini") "Directories" "ModFolder"
-
         num_meshes = reader.read_one('<l')  # -- Read Number Of Meshes
-
         for i in range(num_meshes):  # -- Read Each Mesh
             mesh_name = reader.read_str()  # -- Read Mesh Name
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
@@ -742,7 +741,8 @@ class WhmLoader:
                                             xreffile.skip(current_chunk.size)
                                         if current_chunk.typeid == 'DATABVOL':
                                             break
-                                case 'DATAMARK': self.CH_DATAMARK(xreffile)
+                                # case 'DATAMARK': self.CH_DATAMARK(xreffile)
+                                case _: xreffile.skip(current_chunk.size)
                 else:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
             mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent

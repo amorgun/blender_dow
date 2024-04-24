@@ -32,6 +32,5 @@ def write_dds(
         32, _ddsF_FOURCC, fourCC,  # pixel format
         _DOW_DDSCAPS_FLAGS, 0,  # ddscaps
     )
-    print(f'HEADER LEN {len(header)}')
     dst.write(header)
     dst.write(src.read(data_size))
