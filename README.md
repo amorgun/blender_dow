@@ -6,7 +6,7 @@ Blender addon for import and export of Dawn of War models.
 ## Key features
 - **Import and Export Functionality**: Supports the Dawn of War model format(`.whm`), including meshes, textures, bones, markers and animations.
 * **Object Editor support**: Allows export to Object Editor model format(`.sgm`) so you can configure the unit properties, e.g. motions and actions.
-- **Built-in conversion of textures**: Automatically imports `.rsh` texture data, including all additional layers, and exports all of it back.
+- **Built-in conversion of textures**: Automatically imports `.rsh` texture files, including all additional layers, and exports all of it back.
 
 ## Installation
 1. Download the latest release from the [Releases page](https://github.com/amorgun/blender_dow/releases/).
