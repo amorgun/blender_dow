@@ -1,7 +1,7 @@
-# blender_dow
-![blender_screen](images/dred_render1.png)
+# Blender Dawn of War Addon
+Blender addon for import and export of Dawn of War models.  
 
-Blender addon for import and export of Dawn of War models.
+![blender_screenshot](images/dred_render1.png)
 
 ## Key features
 - **Import and Export Functionality**: Supports the Dawn of War model format(`.whm`), including meshes, textures, bones, markers and animations.
