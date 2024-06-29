@@ -224,7 +224,13 @@ class Exporter:
                 if node is None:
                     continue
                 image_name = mat_path.name or pathlib.Path(node.image.filepath).name or node.image.name
-                get_suffix = lambda x: pathlib.Path(x).suffix
+
+                def get_suffix(path: str):
+                    suffix = pathlib.Path(path).suffix
+                    if suffix and any(i.isalpha() for i in suffix):
+                        return suffix
+                    return ''
+
                 suffix = get_suffix(node.image.filepath) or get_suffix(node.image.name) or get_suffix(mat.name)
                 dst_file = self.paths.get_path((mat_path / image_name).with_suffix(suffix), require_parent=True)
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
