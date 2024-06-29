@@ -1,9 +1,9 @@
 bl_info = {
-    'name': 'Dawn of War .WHM format',
+    'name': 'Dawn of War .WHM and .SGM formats',
     'description': 'Import and export of Dawn of War models',
     'author': 'amorgun',
     'license': 'GPL',
-    'version': (0, 8),
+    'version': (0, 11),
     'blender': (4, 1, 0),
     'doc_url': 'https://github.com/amorgun/blender_dow',
     'tracker_url': 'https://github.com/amorgun/blender_dow/issues',
@@ -38,11 +38,13 @@ class AddonPreferences(bpy.types.AddonPreferences):
 
 class ImportWhm(bpy.types.Operator, ImportHelper):
     """Import Dawn of War .whm model file"""
-    bl_idname = 'import_model.whm'
+    bl_idname = 'import_model.dow_whm'
     bl_label = 'Import .whm file'
     bl_options = {'REGISTER', 'UNDO'}
 
-    filter_glob = bpy.props.StringProperty(
+    filename_ext = '.whm'
+
+    filter_glob: bpy.props.StringProperty(
         default='*.whm',
         options={'HIDDEN'},
         maxlen=255,
@@ -79,28 +81,16 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 
-class ExportWhm(bpy.types.Operator, ExportHelper):
-    """Export Dawn of War .whm model file"""
-    bl_idname = 'export_model.whm'
-    bl_label = 'Export .whm file'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    filename_ext = ".whm"
-
+class ExportModel:
     object_name: bpy.props.StringProperty(
-        default='Unit',
+        default='',
         name='Object name',
     )
 
     meta: bpy.props.StringProperty(
         default='',
-        name='Custom metadata, e.g. username',
-    )
-
-    filter_glob: bpy.props.StringProperty(
-        default='*.whm',
-        options={'HIDDEN'},
-        maxlen=255,
+        name='Metadata',
+        description='Custom metadata, e.g. username',
     )
 
     convert_textures: bpy.props.BoolProperty(
@@ -111,31 +101,54 @@ class ExportWhm(bpy.types.Operator, ExportHelper):
 
     data_location: bpy.props.EnumProperty(
         name='Data store location',
-        description='How to store textures and other external data',
+        description='How to store textures',
         items=(
-            ('Mod_root', 'Mod root', 'Put new filed into the mod folder'),
-            ('Nearby', 'Standalone folder', 'Create a directory with data alongside the exported file'),
+            ('mod_root', 'Mod root', 'Put new filed into the mod folder'),
+            ('nearby', 'Standalone folder', 'Create a directory with data alongside the exported file'),
         ),
-        default='Nearby',
+        default='nearby',
     )
 
-    use_nested: bpy.props.BoolProperty(
-        name='Use nested folders',
-        description='Create nested directories according to data paths',
-        default=True,
+    store_layout: bpy.props.EnumProperty(
+        name='Texture store layout',
+        description='How to organize textures',
+        items=(
+            ('flat', 'Flat', 'Put everything in the root folder'),
+            ('flat_folders', 'Flat folders', 'Create a directory for each texture'),
+            ('full_path', 'Full path', 'Create nested directories according to data paths'),
+        ),
+        default='flat',
     )
+
+    default_texture_path: bpy.props.StringProperty(
+        default='art/ebps/races/space_marines/texture_share',
+        name='Default texture folder',
+    )
+
+    FORMAT: exporter.ExportFormat = None
 
     def execute(self, context):
+        assert self.FORMAT is not None
         preferences = context.preferences
         addon_prefs = preferences.addons[__package__].preferences
-        data_folder = addon_prefs.mod_folder if self.data_location == 'Mod_root' else pathlib.Path(self.filepath).with_suffix('')
-        paths = exporter.FileDispatcher(data_folder, is_flat=not self.use_nested)
+        filepath = pathlib.Path(self.filepath)
+        data_folder = addon_prefs.mod_folder if self.data_location == 'mod_root' else filepath.with_suffix('')
+        paths = exporter.FileDispatcher(data_folder, layout={
+            'flat': exporter.FileDispatcher.Layout.FLAT,
+            'flat_folders': exporter.FileDispatcher.Layout.FLAT_FOLDERS,
+            'full_path': exporter.FileDispatcher.Layout.FULL_PATH,
+        }[self.store_layout])
+        object_name = self.object_name if self.object_name else filepath.stem
         with open(self.filepath, 'wb') as f:
-            writer = exporter.ChunkWriter(f)
-            ex = exporter.WhmExporter(paths, self.convert_textures)
+            writer = exporter.ChunkWriter(f, exporter.CHUNK_VERSIONS[self.FORMAT])
+            ex = exporter.Exporter(paths,
+                                   format=self.FORMAT,
+                                   default_texture_path=self.default_texture_path,
+                                   convert_textures=self.convert_textures,
+                                   context=context)
             try:
-                ex.export(writer, object_name=self.object_name, meta=self.meta)
-                if self.data_location == 'Nearby' and not self.use_nested:
+                ex.export(writer, object_name=object_name, meta=self.meta)
+                if self.data_location == 'nearby':
                     paths.dump_info()
             finally:
                 for message_lvl, message in ex.messages:
@@ -143,25 +156,66 @@ class ExportWhm(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+class ExportWhm(bpy.types.Operator, ExportModel, ExportHelper):
+    """Export Dawn of War .whm model file"""
+    bl_idname = 'export_model.dow_whm'
+    bl_label = 'Export .whm file'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".whm"
+
+    filter_glob: bpy.props.StringProperty(
+        default='*.whm',
+        options={'HIDDEN'},
+        maxlen=255,
+    )
+
+    FORMAT = exporter.ExportFormat.WHM
+
+
+class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
+    """Export Dawn of War Object Editor .sgm model"""
+    bl_idname = 'export_model.dow_sgm'
+    bl_label = 'Export .sgm file'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".sgm"
+
+    filter_glob: bpy.props.StringProperty(
+        default='*.sgm',
+        options={'HIDDEN'},
+        maxlen=255,
+    )
+
+    FORMAT = exporter.ExportFormat.SGM
+
+
 def import_menu_func(self, context):
     self.layout.operator(ImportWhm.bl_idname, text='Dawn of War model (.whm)')
 
 
-def export_menu_func(self, context):
+def export_menu_whm_func(self, context):
     self.layout.operator(ExportWhm.bl_idname, text='Dawn of War model (.whm)')
+
+def export_menu_sgm_func(self, context):
+    self.layout.operator(ExportSgm.bl_idname, text='Dawn of War Object Editor model (.sgm)')
 
 
 def register():
     bpy.utils.register_class(ImportWhm)
     bpy.utils.register_class(ExportWhm)
+    bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(AddonPreferences)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_func)
-    bpy.types.TOPBAR_MT_file_export.append(export_menu_func)
+    bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
+    bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
 
 
 def unregister():
-    bpy.types.TOPBAR_MT_file_export.remove(export_menu_func)
+    bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
+    bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_func)
     bpy.utils.unregister_class(AddonPreferences)
+    bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
     bpy.utils.unregister_class(ImportWhm)

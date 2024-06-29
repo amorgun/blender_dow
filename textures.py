@@ -13,7 +13,6 @@ import struct
         # ((Control)label4).Text = "Self Illumination:";
         # ((Control)label5).Text = "Opacity:";
 
-
 def write_dds(
     src: io.BufferedIOBase,
     dst: io.BufferedIOBase,
@@ -34,3 +33,15 @@ def write_dds(
     )
     dst.write(header)
     dst.write(src.read(data_size))
+
+
+def read_dds_header(src: io.BufferedIOBase):
+    fmt = '< 4s 8x 3l 4x l 44x 8x 4s 20x 8x 12x'
+    data = src.read(struct.calcsize(fmt))
+    dds_magic, height, width, data_size, num_mips, fourCC = struct.unpack(fmt, data)
+
+    is_dds = dds_magic == b'DDS '
+    return (is_dds, width, height, data_size, num_mips,
+             {b'DXT1': 8, b'DXT3': 10, b'DXT5': 11}[fourCC] if is_dds else None,
+             {b'DXT1': 5, b'DXT3': 6, b'DXT5': 7}[fourCC] if is_dds else None,
+    )
