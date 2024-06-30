@@ -259,7 +259,9 @@ class WhmLoader:
 
         for bone in created_bones_array:
             if len(bone.children) == 1:
-                bone.length = (bone.children[0].head - bone.head).length
+                new_length = (bone.children[0].head - bone.head).length
+                if new_length > 1e-3:
+                    bone.length = new_length
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_FOLDMSGR(self, reader: ChunkReader):  # Chunk Handler - Mesh Data
@@ -334,7 +336,6 @@ class WhmLoader:
         num_bones = reader.read_one('<l')  # -- Read Number Of Bones
         for bone_idx in range(num_bones):  # -- Read Bones
             bone_name = reader.read_str()  # -- Read Bone Name
-            # bone_idx = self.name_2_bone_idx[bone_name]
             bone = self.armature_obj.pose.bones[bone_name]
             orig_transform = self.bone_orig_transform[bone_name]
 
