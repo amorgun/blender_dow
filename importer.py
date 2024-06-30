@@ -259,7 +259,7 @@ class WhmLoader:
 
         for bone in created_bones_array:
             if len(bone.children) == 1:
-                bone.length = (bone.children[0].head - bone.tail).length
+                bone.length = (bone.children[0].head - bone.head).length
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_FOLDMSGR(self, reader: ChunkReader):  # Chunk Handler - Mesh Data
