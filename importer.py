@@ -89,25 +89,22 @@ class WhmLoader:
                 self.load_rsh(ChunkReader(f))  # -- create new material
 
     def load_rsh(self, reader: ChunkReader):
-        reader.skip_relic_chunky()  # Skip 'Relic Chunky' Header
-        current_chunk = reader.read_header()  # Skip 'Folder SHRF' Header
+        reader.skip_relic_chunky()
+        current_chunk = reader.read_header('FOLDSHRF')  # Skip 'Folder SHRF' Header
         loaded_textures = {}
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
-                case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name, internal=False)  # FOLDTXTR - Internal Texture
+                case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
                 case 'FOLDSHDR': self.CH_FOLDSHDR(reader, current_chunk.name, loaded_textures)
                 case _: reader.skip(current_chunk.size)
 
-    def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str, internal: bool):  # Chunk Handler - Internal Texture
-        current_chunk = reader.read_header()  # DATAHEAD
-        assert current_chunk.typeid == 'DATAHEAD'
+    def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str):  # Chunk Handler - Internal Texture
+        current_chunk = reader.read_header('DATAHEAD')
         image_type, num_images = reader.read_struct('<2l')
-        current_chunk = reader.read_header()  # FOLDIMAG
-        assert current_chunk.typeid == 'FOLDIMAG'
-        current_chunk = reader.read_header()  # DATAATTR
+        current_chunk = reader.read_header('FOLDIMAG')
+        current_chunk = reader.read_header('DATAATTR')
         image_format, width, height, num_mips = reader.read_struct('<4l')
-        current_chunk = reader.read_header()  # DATADATA
-        assert current_chunk.typeid == 'DATADATA'
+        current_chunk = reader.read_header('DATADATA')
 
         import tempfile
 
@@ -120,17 +117,12 @@ class WhmLoader:
             image.pack()
             image.use_fake_user = True
         return image
-        # if internal:
-        #     setup_property(image, 'internal', True, description='Do not export this texture to separate file')
-        # elif mat.get('internal'):
-        #     mat['internal'] = False        
-            
 
     def CH_FOLDSHDR(self, reader: ChunkReader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
         material_name = pathlib.Path(material_path).name
         if material_name in bpy.data.materials:
             mat = bpy.data.materials[material_name]
-            return
+            return mat
         else:
             mat = bpy.data.materials.new(name=material_name)
         setup_property(mat, 'full_path', material_path, subtype='FILE_PATH', description='Path to export this texture')
@@ -140,9 +132,8 @@ class WhmLoader:
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
         
-        current_chunk = reader.read_header()  # DATAINFO
-        assert current_chunk.typeid == 'DATAINFO'
-        info_bytes = reader.read_one('<8x B 8x')
+        current_chunk = reader.read_header('DATAINFO')
+        num_images, *info_bytes = reader.read_struct('<2L 4B L x')
 
         node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')
         node_uv.from_instancer = True
@@ -163,13 +154,12 @@ class WhmLoader:
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
 
         created_tex_nodes = {}
-        for _ in range(6):
-            current_chunk = reader.read_header()  # DATACHAN
-            assert current_chunk.typeid == 'DATACHAN'
+        for _ in range(num_images):
+            current_chunk = reader.read_header('DATACHAN')
             channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
             channel_name = reader.read_str()
             num_coords = reader.read_one('<4x l 4x')
-            for _ in range(num_coords):
+            for _ in range(4):  # always 4, not num_coords
                 for ref_idx in range(4):
                     x, y = reader.read_struct('<2f')
             if channel_name == '':
@@ -200,6 +190,7 @@ class WhmLoader:
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][0]', fallback_value=1, index=0)
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][1]', fallback_value=1, index=1)
         self.created_materials[material_path] = mat
+        return mat
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
@@ -299,7 +290,7 @@ class WhmLoader:
 
             if marker_name in self.armature.bones:
                 continue  # FIXME
-            assert marker_name not in self.armature.bones
+            assert marker_name not in self.armature.bones, marker_name
 
             parent = self.armature.edit_bones.get(parent_name)
             if parent is None:
@@ -314,7 +305,7 @@ class WhmLoader:
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
         # ---< DATADATA >---
 
-        current_chunk = reader.read_header()  # -- Read DATADATA Chunk Header
+        current_chunk = reader.read_header('DATADATA')
 
         animation_name = current_chunk.name
         num_frames = reader.read_one('<l')  # -- Read Number Of Frames
@@ -421,9 +412,13 @@ class WhmLoader:
                     else:
                         prop_name = f'uv_tiling__{material.name}'
                         setup_property(self.armature_obj, prop_name, [1., 1.], default=[1., 1.], description='Hack for animatiing UV tiling')
+                else:
+                    self.messages.append(('WARNING', f'Cannot find material {obj_name}'))
                 for j in range(keys_tex):  # -- Read Texture Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_tex = reader.read_one('<f')
+                    if material is None:
+                        continue
                     match tex_anim_type:
                         case 1:
                             self.armature_obj[prop_name][0] = key_tex
@@ -457,7 +452,7 @@ class WhmLoader:
 
         # ---< DATAANBV >---
 
-        current_chunk = reader.read_header()  # -- Read DATAANBV Chunk Header
+        current_chunk = reader.read_header('DATAANBV')
         reader.skip(current_chunk.size)  # -- Skip DATAANBV Chunk
 
     def CH_FOLDMSLC(self, reader: ChunkReader, mesh_name: str, xref: bool, group_name: str = None):  # Chunk Handler - FOLDMSGR Sub Chunk - Mesh Data
@@ -469,7 +464,7 @@ class WhmLoader:
 
         bone_array = self.xref_bone_array if xref else self.bone_array
 
-        current_chunk = reader.read_header()  # -- read DATADATA header
+        current_chunk = reader.read_header('DATADATA')
         rsv0_a, flag, num_polygons, rsv0_b = reader.read_struct('<l b l l') # -- skip 13 bytes (unknown)
         assert flag == 1, f'{mesh_name}: {flag=}'
         assert rsv0_a == 0 and rsv0_b == 0
@@ -574,7 +569,7 @@ class WhmLoader:
 
         #---< DATABVOL CHUNK >---
 
-        current_chunk = reader.read_header()  # -- Read DATABVOL Header
+        current_chunk = reader.read_header('DATABVOL')
         bbox_flag, *bbox_center = reader.read_struct('<b3f')
         bbox_size = reader.read_struct('<3f')
         bbox_rot_mat = reader.read_struct('<9f')
@@ -659,6 +654,7 @@ class WhmLoader:
         armature_mod = obj.modifiers.new('Skeleton', "ARMATURE")
         armature_mod.object = self.armature_obj
         self.blender_mesh_root.objects.link(obj)
+        return obj
 
     def CH_DATADATA(self, reader: ChunkReader):  # - Chunk Handler - Sub Chunk Of FOLDMSGR - Mesh List
         num_meshes = reader.read_one('<l')  # -- Read Number Of Meshes
@@ -674,10 +670,10 @@ class WhmLoader:
                         self.messages.append(('INFO', f'Loading {filename}'))
                     with filename.open('rb') as f:
                         xreffile = ChunkReader(f)
-                        xreffile.skip_relic_chunky()  # -- Skip 'Relic Chunky' Header
-                        chunk = xreffile.read_header()  # -- Read 'File Burn Info' Header
+                        xreffile.skip_relic_chunky()
+                        chunk = xreffile.read_header('DATAFBIF')  # -- Read 'File Burn Info' Header
                         xreffile.skip(chunk.size)  # -- Skip 'File Burn Info' Chunk
-                        chunk = xreffile.read_header()	# -- Skip 'Folder SGM' Header
+                        chunk = xreffile.read_header('FOLDRSGM')	# -- Skip 'Folder SGM' Header
                         group_name = f'xref_{chunk.name}'
                         for current_chunk in xreffile.iter_chunks():  # -- Read Chunks Until End Of File
                             match current_chunk.typeid:
@@ -686,7 +682,8 @@ class WhmLoader:
                                 case 'FOLDMSGR':  # -- Read FOLDMSLC Chunks
                                     for current_chunk in xreffile.iter_chunks():  # -- Read FOLDMSLC Chunks
                                         if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
-                                            self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
+                                            mesh_obj = self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
+                                            setup_property(mesh_obj, 'xref_source', str(mesh_path), description='Reference this mesh from an external file instead of this model')
                                         else:
                                             xreffile.skip(current_chunk.size)
                                         if current_chunk.typeid == 'DATABVOL':
@@ -709,25 +706,31 @@ class WhmLoader:
     
     def load(self, reader: ChunkReader):
         self._reset()
-        reader.skip_relic_chunky()   # Skip 'Relic Chunky' Header
-        header = reader.read_header()  # Read 'File Burn Info' Header
+        reader.skip_relic_chunky()
+        header = reader.read_header('DATAFBIF')  # Read 'File Burn Info' Header
         reader.skip(header.size)       # Skip 'File Burn Info' Chunk
-        header = reader.read_header()  # Skip 'Folder SGM' Header
+        header = reader.read_header('FOLDRSGM')  # Skip 'Folder SGM' Header
         self.model_root_collection = bpy.data.collections.new(header.name)
         self.bpy_context.scene.collection.children.link(self.model_root_collection)
         self.model_root_collection.objects.link(self.armature_obj)
+
+        internal_textures = {}
         
         for current_chunk in reader.iter_chunks():  # Read Chunks Until End Of File
             match current_chunk.typeid:
                 case "DATASSHR": self.CH_DATASSHR(reader)  # DATASSHR - Texture Data
-                case "FOLDTXTR": 
-                    self.CH_FOLDTXTR(reader, current_chunk.name, internal=True)  # FOLDTXTR - Internal Texture
-                    raise Exception('LOAD INTERNAL TEXTURE')
+                case "FOLDTXTR":  # FOLDTXTR - Internal Texture
+                    internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
+                case "FOLDSHDR":  # FOLDSHDR - Internal Material
+                    mat = self.CH_FOLDSHDR(reader, current_chunk.name, internal_textures)
+                    setup_property(mat, 'internal', True, description='Do not export this material to separate file')
                 case "DATASKEL": self.CH_DATASKEL(reader, xref=False)  # DATASKEL - Skeleton Data
                 case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
                 case "DATAMARK": self.CH_DATAMARK(reader)  # DATAMARK - Marker Data
                 case "FOLDANIM": self.CH_FOLDANIM(reader)  # FOLDANIM - Animations
-                case _: reader.skip(current_chunk.size)  # Skipping Chunks By Default
+                case _:
+                    self.messages.append(('INFO', f'Skipped unknown chunk {current_chunk.typeid}'))
+                    reader.skip(current_chunk.size)  # Skipping Chunks By Default
 
         for bone in self.armature_obj.pose.bones:
             bone.matrix_basis = mathutils.Matrix()
@@ -737,6 +740,8 @@ class WhmLoader:
                 self.armature_obj[k] = 1.
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
+    print('------------------')
+
     for action in bpy.data.actions:
         bpy.data.actions.remove(action)
 

@@ -5,6 +5,7 @@ import enum
 import io
 import math
 import pathlib
+import tempfile
 
 import bpy
 import mathutils
@@ -58,6 +59,20 @@ CHUNK_VERSIONS = {
         'FOLDRSGM': {
             'version': 3,
             'DATASSHR': {'version': 2},
+            'FOLDTXTR': {
+                'version': 1,
+                'DATAHEAD': {'version': 1},
+                'FOLDIMAG': {
+                    'version': 1,
+                    'DATAATTR': {'version': 2},
+                    'DATADATA': {'version': 2},
+                }
+            },
+            'FOLDSHDR': {
+                'version': 1,
+                'DATAINFO': {'version': 1},
+                'DATACHAN': {'version': 3},
+            },
             'DATASKEL': {'version': 5},
             'FOLDMSGR': {
                 'version': 1,
@@ -81,6 +96,20 @@ CHUNK_VERSIONS = {
         'FOLDRSGM': {
             'version': 1,
             'DATASSHR': {'version': 1},
+            'FOLDTXTR': {
+                'version': 1,
+                'DATAHEAD': {'version': 1},
+                'FOLDIMAG': {
+                    'version': 1,
+                    'DATAATTR': {'version': 2},
+                    'DATADATA': {'version': 2},
+                }
+            },
+            'FOLDSHDR': {
+                'version': 1,
+                'DATAINFO': {'version': 1},
+                'DATACHAN': {'version': 3},
+            },
             'FOLDSKEL': {
                 'version': 3,
                 'DATAINFO': {'version': 1},
@@ -207,6 +236,13 @@ class Exporter:
                 self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
                 continue
 
+            images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
+            if mat.get('internal'):
+                export_success = self.write_material(writer, images_to_export, mat_path)
+                if not export_success:
+                    return False
+                self.exported_materials[mat.name] = str(mat_path)
+                continue
             with writer.start_chunk('DATASSHR', name=str(mat_path)):
                 writer.write_str(str(mat_path))
             self.exported_materials[mat.name] = str(mat_path)
@@ -214,7 +250,7 @@ class Exporter:
             if self.convert_textures:
                 dst_path = self.paths.get_path(f'{mat_path}.rsh')
                 if self.export_rsh(
-                    {k: v.image if v else v for k, v in exported_nodes.items()},
+                    images_to_export,
                     dst_path,
                     mat_path,
                 ):
@@ -245,14 +281,12 @@ class Exporter:
                         continue
                 self.paths.add_info(f'{mat_path}.rsh', dst_file)
 
-    def export_rsh(self, images, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath) -> bool:
-        import tempfile
+    def export_rsh(self, images: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath) -> bool:
         import shutil
 
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
             exported_file = temp_dir / dst_path.name
-            texture_declared_paths = {}
             with exported_file.open('wb') as f:
                 writer = ChunkWriter(f, {
                     'FOLDSHRF': {
@@ -275,57 +309,71 @@ class Exporter:
                 })
                 self.write_relic_chunky(writer)
                 with writer.start_chunk('FOLDSHRF', name=str(declared_path)):
-                    for key in ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']:
-                        image = images.get(key)
-                        if not image:
-                            continue
-                        image_path = pathlib.Path(image.filepath)
-                        if '.dds' in image_path.name:
-                            texture_filename = image_path.name[:image_path.name.rfind('.dds')]
-                        else:
-                            texture_filename = image_path.name or image.name
-                        texture_declared_path = declared_path.parent / texture_filename
-                        texture_declared_paths[key] = texture_declared_path
-
-                        if image.packed_files:
-                            dds_stream = io.BytesIO(image.packed_file.data)
-                        else:
-                            try:
-                                dds_path = (temp_dir/texture_filename).with_suffix('.dds')
-                                image.save(filepath=str(dds_path))
-                                dds_stream = dds_path.open('rb')
-                            except Exception as e:
-                                self.messages.append(('WARNING', f'Error while converting {image_path}: {e!r}'))
-                                return False
-                        with dds_stream:
-                            try:
-                                is_dds, height, width, data_size, num_mips, image_format, image_type = textures.read_dds_header(dds_stream)
-                            except Exception as e:
-                                self.messages.append(('WARNING', f'Error while converting {image_path}: {e!r}'))
-                                return False
-                            if not is_dds:
-                                self.messages.append(('WARNING', f'Can only convert .dds to .rsh ({image.name})'))
-                                return False
-                            with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
-                                with writer.start_chunk('DATAHEAD'):
-                                    writer.write_struct('<2l', image_type, 1)  # num_images
-                                with writer.start_chunk('FOLDIMAG'):
-                                    with writer.start_chunk('DATAATTR'):
-                                        writer.write_struct('<4l', image_format, width, height, num_mips)
-                                    with writer.start_chunk('DATADATA'):
-                                        writer.write(dds_stream.read(data_size))
-                    with writer.start_chunk('FOLDSHDR', name=str(declared_path)):
-                        with writer.start_chunk('DATAINFO'):
-                            writer.write_struct('<8x B 8x', 1)
-                        for channel_idx, key in enumerate(['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity', 'unknown']):
-                            with writer.start_chunk('DATACHAN'):
-                                writer.write_struct('<2l4B', channel_idx, 0, *([255, 255, 255, 255] if channel_idx == 4 else [0, 0, 0, 0]))
-                                writer.write_str(str(texture_declared_paths.get(key, '')))
-                                writer.write_struct('<4x l 4x', 4)  # num_coords
-                                for c in [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]:
-                                    writer.write_struct('<2f', *c)
+                    export_success = self.write_material(writer, images, declared_path)
+                    if not export_success:
+                        return False
             dst_path.parent.mkdir(exist_ok=True, parents=True)
             shutil.copy(exported_file, dst_path)
+        return True
+
+    def write_material(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath) -> bool:
+        texture_declared_paths = {}
+        with tempfile.TemporaryDirectory() as t:
+            temp_dir = pathlib.Path(t)
+            for key in ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']:
+                image = images.get(key)
+                if not image:
+                    continue
+                image_path = pathlib.Path(image.filepath)
+                if '.dds' in image_path.name:
+                    texture_filename = image_path.name[:image_path.name.rfind('.dds')]
+                else:
+                    texture_filename = image_path.name or image.name
+                texture_declared_path = declared_path.parent / texture_filename
+                texture_declared_paths[key] = texture_declared_path
+
+                if image.packed_files:
+                    dds_stream = io.BytesIO(image.packed_file.data)
+                else:
+                    try:
+                        dds_path = (temp_dir/texture_filename).with_suffix('.dds')
+                        image.save(filepath=str(dds_path))
+                        dds_stream = dds_path.open('rb')
+                    except Exception as e:
+                        self.messages.append(('WARNING', f'Error while converting {image_path}: {e!r}'))
+                        return False
+                with dds_stream:
+                    try:
+                        # TODO debug
+                        is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(dds_stream)
+                    except Exception as e:
+                        self.messages.append(('WARNING', f'Error while converting {image_path}: {e!r}'))
+                        return False
+                    if not is_dds:
+                        self.messages.append(('WARNING', f'Can only convert .dds to .rsh ({image.name})'))
+                        return False
+                    with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
+                        with writer.start_chunk('DATAHEAD'):
+                            writer.write_struct('<2l', image_type, 1)  # num_images
+                        with writer.start_chunk('FOLDIMAG'):
+                            with writer.start_chunk('DATAATTR'):
+                                writer.write_struct('<4l', image_format, width, height, num_mips)
+                            with writer.start_chunk('DATADATA'):
+                                writer.write(dds_stream.read())
+            with writer.start_chunk('FOLDSHDR', name=str(declared_path)):
+                with writer.start_chunk('DATAINFO'):
+                    writer.write_struct('<2L4BLx', 6, 7, 204, 204, 204, 61, 1)  # the first 204 sometimes is 205
+                for channel_idx, key in enumerate(['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity', 'unknown']):
+                    with writer.start_chunk('DATACHAN'):
+                        method_idx = {
+                            0: 1,
+                        }.get(channel_idx, 0)
+                        writer.write_struct('<2l4B', channel_idx, method_idx, *([255, 255, 255, 255] if channel_idx == 4 else [0, 0, 0, 255]))
+                        writer.write_str(str(texture_declared_paths.get(key, '')))
+                        writer.write_struct('<l l 4x', 1, 4)  # num_coords
+                        for _ in range(4):
+                            for c in [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]:
+                                writer.write_struct('<2f', *c)
         return True
 
     @classmethod
@@ -457,7 +505,7 @@ class Exporter:
                             self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
                         uv_array = [mathutils.Vector([0, 0]) for _ in mesh.vertices]
                         for uv, loop in zip(mesh.uv_layers[0].uv, mesh.loops):
-                            uv_array[loop.vertex_index] = uv.vector
+                            uv_array[loop.vertex_index] = uv.vector  # TODO Split vertices with 2 or more UV positions
                         for uv in uv_array:
                             writer.write_struct('<2f', uv.x, 1 - uv.y)
                         if self.format is ExportFormat.WHM:

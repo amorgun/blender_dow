@@ -23,13 +23,16 @@ class ChunkReader:
     def __init__(self, stream):
         self.stream = stream
         
-    def read_header(self) -> ChunkHeader:
+    def read_header(self, expected_typeid: str = None) -> ChunkHeader:
         fields = self.read_struct('<8slll')
         if fields is None:
             return None
         typeid, version, size, name_length = fields
         name = self.stream.read(name_length)
-        return ChunkHeader(str(typeid, 'ascii'), version, size, name_length, name)
+        typeid = str(typeid, 'ascii')
+        if expected_typeid:
+            assert typeid == expected_typeid, f'Expected {expected_typeid}, got {typeid}'
+        return ChunkHeader(typeid, version, size, name_length, name)
 
     def read_struct(self, fmt: str) -> tuple | None:
         size = struct.calcsize(fmt)
