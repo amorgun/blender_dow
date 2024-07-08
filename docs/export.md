@@ -11,8 +11,8 @@ Here I'll show steps on how to export [this](https://sketchfab.com/3d-models/ani
     3. Remove `Plane` and `Book` meshes.
 2. **Reduce vertex count**  
     DoW uses 16 bits for vertex indices, so you cannot have more than 65536 vertices per mesh.  
-    In practice, DoW fails much earlier at about 8000 vertices in my experience.  
-    A typical DoW model uses about 5000 vertices for all meshes together.  
+    In practice, DoW fails much earlier at about 8K vertices per mesh and 30K vertices in total in my experience.  
+    A typical DoW model uses about 5K vertices for all meshes together.  
     In the case of this model, the main offender is the `Body` mesh with 115K polygons.  
     Blender offers a lot of options for reducing polygon count. Here I used the simplest ones:
     1. Manually remove extra vertices  
@@ -56,4 +56,4 @@ Here I'll show steps on how to export [this](https://sketchfab.com/3d-models/ani
         You can copy an existing file and change `entity_blueprint_ext - animator` value to `Races/Space_Marines/Troops/techgirl`  
         Also set `ui_info - screen_name_id` value to `Techgirl` and data type to `Text`
     3. Edit `space_marine_race.rgd`.  
-        Find `Data/attrib/racebps/entity_03.rgd` and set `teamcolour_preview - entity_03` value to `techgirl`.
+        Find `Data/attrib/racebps/space_marine_race.rgd` and set `teamcolour_preview - entity_03` value to `techgirl`.
