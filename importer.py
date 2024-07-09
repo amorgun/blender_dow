@@ -119,12 +119,10 @@ class WhmLoader:
         return image
 
     def CH_FOLDSHDR(self, reader: ChunkReader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
+        if material_path in self.created_materials:
+            return self.created_materials[material_path]
         material_name = pathlib.Path(material_path).name
-        if material_name in bpy.data.materials:
-            mat = bpy.data.materials[material_name]
-            return mat
-        else:
-            mat = bpy.data.materials.new(name=material_name)
+        mat = bpy.data.materials.new(name=material_name)
         setup_property(mat, 'full_path', material_path, subtype='FILE_PATH', description='Path to export this texture')
         mat.blend_method = 'CLIP'
         mat.show_transparent_back = False
@@ -639,8 +637,8 @@ class WhmLoader:
         uv_layer.data.foreach_set('uv', per_loop_list)  # -- Set UVW Coordinates
 
         #---< WELD VERTICES >---
-        
-        #meshop.weldVertsByThreshold new_mesh new_mesh.verts 0.00000001						-- Weld Vertices
+
+        obj.modifiers.new('Weld', 'WELD')
 
         if self.blender_mesh_root is None:
             self.blender_mesh_root = bpy.data.collections.new('Meshes')

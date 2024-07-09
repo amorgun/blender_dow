@@ -1,10 +1,12 @@
 import collections
 import contextlib
+import dataclasses
 import datetime
 import enum
 import io
 import math
 import pathlib
+import shutil
 import tempfile
 
 import bpy
@@ -51,6 +53,14 @@ class FileDispatcher:
         with open(self.root / 'info.txt', 'w') as f:
             for filename, dst in self.file_info:
                 f.write(f'{filename} -> {dst}\n')
+
+
+@dataclasses.dataclass
+class VertexInfo:
+    position: list
+    vertex_groups: list
+    normal: list
+    uv: list
 
 
 CHUNK_VERSIONS = {
@@ -243,7 +253,7 @@ class Exporter:
                     return False
                 self.exported_materials[mat.name] = str(mat_path)
                 continue
-            with writer.start_chunk('DATASSHR', name=str(mat_path)):
+            with writer.start_chunk('DATASSHR', name=str(mat_path)):  # Unused, can be deleted
                 writer.write_str(str(mat_path))
             self.exported_materials[mat.name] = str(mat_path)
 
@@ -253,6 +263,7 @@ class Exporter:
                     images_to_export,
                     dst_path,
                     mat_path,
+                    mat.name,
                 ):
                     self.paths.add_info(f'{mat_path}.rsh', dst_path)
                     continue
@@ -281,9 +292,7 @@ class Exporter:
                         continue
                 self.paths.add_info(f'{mat_path}.rsh', dst_file)
 
-    def export_rsh(self, images: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath) -> bool:
-        import shutil
-
+    def export_rsh(self, images: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
             exported_file = temp_dir / dst_path.name
@@ -308,15 +317,15 @@ class Exporter:
                     }
                 })
                 self.write_relic_chunky(writer)
-                with writer.start_chunk('FOLDSHRF', name=str(declared_path)):
-                    export_success = self.write_material(writer, images, declared_path)
+                with writer.start_chunk('FOLDSHRF', name=mat_name):
+                    export_success = self.write_material(writer, images, declared_path, mat_name)
                     if not export_success:
                         return False
             dst_path.parent.mkdir(exist_ok=True, parents=True)
             shutil.copy(exported_file, dst_path)
         return True
 
-    def write_material(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath) -> bool:
+    def write_material(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         texture_declared_paths = {}
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
@@ -344,7 +353,6 @@ class Exporter:
                         return False
                 with dds_stream:
                     try:
-                        # TODO debug
                         is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(dds_stream)
                     except Exception as e:
                         self.messages.append(('WARNING', f'Error while converting {image_path}: {e!r}'))
@@ -359,8 +367,8 @@ class Exporter:
                             with writer.start_chunk('DATAATTR'):
                                 writer.write_struct('<4l', image_format, width, height, num_mips)
                             with writer.start_chunk('DATADATA'):
-                                writer.write(dds_stream.read())
-            with writer.start_chunk('FOLDSHDR', name=str(declared_path)):
+                                shutil.copyfileobj(dds_stream, writer)
+            with writer.start_chunk('FOLDSHDR', name=mat_name):
                 with writer.start_chunk('DATAINFO'):
                     writer.write_struct('<2L4BLx', 6, 7, 204, 204, 204, 61, 1)  # the first 204 sometimes is 205
                 for channel_idx, key in enumerate(['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity', 'unknown']):
@@ -465,16 +473,43 @@ class Exporter:
                         for g in vertex_groups:
                             writer.write_str(g.name)
                             writer.write_struct('<l', self.bone_to_idx[g.name])
-                        writer.write_struct('<l', len(mesh.vertices))
-                        writer.write_struct('<l', 39 if vertex_groups else 37)
-                        for v in mesh.vertices:
-                            writer.write_struct('<3f', -v.co.x, v.co.z, -v.co.y)
+
                         exported_vertex_groups = {g.name for g in vertex_groups}
+                        extended_vertices: list[VertexInfo] = []
+                        extended_polygons = []
+                        seen_uvs = {}
+
+                        if len(mesh.uv_layers) != 1:
+                            self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
+                        for poly in mesh.polygons:
+                            poly_vertices = []
+                            for loop_idx in poly.loop_indices:
+                                orig_vertex_idx = mesh.loops[loop_idx].vertex_index
+                                uv = mesh.uv_layers[0].uv[loop_idx].vector.copy().freeze()
+                                seen_vertex_uvs = seen_uvs.setdefault(orig_vertex_idx, {})
+                                vertex_idx = seen_vertex_uvs.get(uv)
+                                if vertex_idx is None:
+                                    vertex_idx = len(extended_vertices)
+                                    seen_vertex_uvs[uv] = vertex_idx
+                                    vertex = mesh.vertices[orig_vertex_idx]
+                                    vertex_info = VertexInfo(
+                                        position=vertex.co,
+                                        vertex_groups=[g for g in vertex.groups
+                                                        if obj.vertex_groups[g.group].name in exported_vertex_groups],
+                                        normal = mesh.corner_normals[loop_idx].vector,
+                                        uv=mesh.uv_layers[0].uv[loop_idx].vector,
+                                    )
+                                    extended_vertices.append(vertex_info)
+                                poly_vertices.append(vertex_idx)
+                            extended_polygons.append(poly_vertices)
+
+                        writer.write_struct('<l', len(extended_vertices))
+                        writer.write_struct('<l', 39 if vertex_groups else 37)
+                        for v in extended_vertices:
+                            writer.write_struct('<3f', -v.position.x, v.position.z, -v.position.y)
                         if vertex_groups:
-                            for v in mesh.vertices:
-                                groups = sorted([
-                                    g for g in v.groups if obj.vertex_groups[g.group].name in exported_vertex_groups],
-                                    key=lambda x: -x.weight)
+                            for v in extended_vertices:
+                                groups = sorted(v.vertex_groups, key=lambda x: -x.weight)
                                 if len(groups) > 4:
                                     if not many_bones_warn:
                                         many_bones_warn = True
@@ -489,30 +524,21 @@ class Exporter:
                                         bones_ids.append(255)
                                 writer.write_struct('<3f', *weights[:3])
                                 writer.write_struct('<4B', *bones_ids)
-                        normal_array = [mathutils.Vector([0, 0, 0]) for _ in mesh.vertices]
-                        normal_cnt = [0] * len(mesh.vertices)
                         if not mesh.corner_normals:
                             if not no_custom_normals_warn:
                                 self.messages.append(('WARNING', f'Mesh {obj.name} is missing custom normals'))
                                 no_custom_normals_warn = True
-                        for normal, vert_idx in zip(mesh.corner_normals, (v for p in mesh.polygons for v in p.vertices)):
-                            normal_array[vert_idx] += normal.vector
-                            normal_cnt[vert_idx] += 1
-                        for normal, cnt in zip(normal_array, normal_cnt):
-                            normal = normal / cnt if cnt else normal
-                            writer.write_struct('<3f', -normal.x, normal.z, -normal.y)
+                        for v in extended_vertices:
+                            writer.write_struct('<3f', -v.normal.x, v.normal.z, -v.normal.y)
                         if len(mesh.uv_layers) != 1:
                             self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
-                        uv_array = [mathutils.Vector([0, 0]) for _ in mesh.vertices]
-                        for uv, loop in zip(mesh.uv_layers[0].uv, mesh.loops):
-                            uv_array[loop.vertex_index] = uv.vector  # TODO Split vertices with 2 or more UV positions
-                        for uv in uv_array:
-                            writer.write_struct('<2f', uv.x, 1 - uv.y)
+                        for v in extended_vertices:
+                            writer.write_struct('<2f', v.uv.x, 1 - v.uv.y)
                         if self.format is ExportFormat.WHM:
                             writer.write_struct('<4x')
                         mat_faces = {}
-                        for p in mesh.polygons:
-                            mat_faces.setdefault(p.material_index, []).append(p.vertices)
+                        for poly, extended_verts in zip(mesh.polygons, extended_polygons):
+                            mat_faces.setdefault(poly.material_index, []).append(extended_verts)
                         materials = [(idx, m) for idx, m in enumerate(mesh.materials) if idx in mat_faces]
                         writer.write_struct('<l', len(materials))
                         for mat_idx, mat in materials:
