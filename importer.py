@@ -59,7 +59,7 @@ class WhmLoader:
 
     def _reset(self):
         self.texture_count = 0
-        self.texture_array = []
+        self.loaded_material_paths = set()
         self.bone_array = []
         self.xref_bone_array = []
         self.blender_mesh_root = None
@@ -76,26 +76,27 @@ class WhmLoader:
         self.messages = []
 
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
-        texture_path = reader.read_str()  # -- Read Texture Path
+        material_path = reader.read_str()  # -- Read Texture Path
 
-        if texture_path not in self.texture_array:
-            full_texture_path = self.root / 'Data' / f'{texture_path}.rsh'
+        if material_path not in self.loaded_material_paths:
+            full_material_path = self.root / 'Data' / f'{material_path}.rsh'
 
-            if not full_texture_path.exists():
-                self.messages.append(('WARNING', f'Cannot find texture {full_texture_path}'))
+            if not full_material_path.exists():
+                self.messages.append(('WARNING', f'Cannot find texture {full_material_path}'))
                 return
             
-            with full_texture_path.open('rb') as f:
-                self.load_rsh(ChunkReader(f))  # -- create new material
+            with full_material_path.open('rb') as f:
+                self.load_rsh(ChunkReader(f), material_path)  # -- create new material
+            self.loaded_material_paths.add(material_path)
 
-    def load_rsh(self, reader: ChunkReader):
+    def load_rsh(self, reader: ChunkReader, material_path: str):
         reader.skip_relic_chunky()
         current_chunk = reader.read_header('FOLDSHRF')  # Skip 'Folder SHRF' Header
         loaded_textures = {}
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
-                case 'FOLDSHDR': self.CH_FOLDSHDR(reader, current_chunk.name, loaded_textures)
+                case 'FOLDSHDR': self.CH_FOLDSHDR(reader, material_path, loaded_textures)
                 case _: reader.skip(current_chunk.size)
 
     def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str):  # Chunk Handler - Internal Texture
@@ -737,6 +738,7 @@ class WhmLoader:
         for k, v in self.armature_obj.items():
             if k.startswith('visibility_'):
                 self.armature_obj[k] = 1.
+
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
     print('------------------')

@@ -172,6 +172,7 @@ class Exporter:
         self.exported_bones = None
         self.exported_meshes = None
         self.exported_materials = None
+        self.bone_to_idx = {}
 
     def export(self, writer: ChunkWriter, object_name: str, meta: str = ''):
         current_mode = bpy.context.mode
@@ -187,12 +188,14 @@ class Exporter:
                 self.write_textures(writer)
                 self.write_skel(writer)
                 orig_pose = {}
-                for bone in self.armature_obj.pose.bones:
-                    orig_pose[bone] = bone.matrix_basis.copy()
-                    bone.matrix_basis = mathutils.Matrix()
+                if self.armature_obj:
+                    for bone in self.armature_obj.pose.bones:
+                        orig_pose[bone] = bone.matrix_basis.copy()
+                        bone.matrix_basis = mathutils.Matrix()
                 self.write_meshes(writer)
-                for bone in self.armature_obj.pose.bones:
-                    bone.matrix_basis = orig_pose[bone]
+                if self.armature_obj:
+                    for bone in self.armature_obj.pose.bones:
+                        bone.matrix_basis = orig_pose[bone]
                 self.write_marks(writer)
                 self.write_anims(writer)
 
@@ -411,6 +414,8 @@ class Exporter:
         else:
             bones = [b for b in armature.bones if not self.is_marker(b)]
         self.exported_bones = bones
+        if not self.exported_bones:
+            return
         for bone in bones:
             insert_bone(bone)
 
@@ -420,7 +425,6 @@ class Exporter:
                 yield from iter_bones(child, lvl + 1)
 
         self.bone_transforms = {}
-        self.bone_to_idx = {}
         with self.start_chunk(writer, ExportFormat.WHM, 'DATASKEL'), \
             self.start_chunk(writer, ExportFormat.SGM, 'FOLDSKEL'):
             with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
@@ -602,6 +606,8 @@ class Exporter:
             markers = armature.collections['Markers'].bones
         else:
             markers = [b for b in armature.bones if self.is_marker(b)]
+        if not markers:
+            return
         with self.start_chunk(writer, ExportFormat.WHM, 'DATAMARK'):
             if self.format is ExportFormat.WHM:
                 writer.write_struct('<l', len(markers))
