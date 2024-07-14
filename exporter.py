@@ -715,7 +715,7 @@ class Exporter:
                                 writer.write_struct('<f', frame / max(frame_end, 1))
                                 if prev_rot is not None:
                                     rot.make_compatible(prev_rot)
-                                    prev_rot = rot
+                                prev_rot = rot
                                 writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
 
                             stale_flag = int(bone_obj not in anim_sections['stale'])
