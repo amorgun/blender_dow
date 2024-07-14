@@ -434,7 +434,7 @@ class Exporter:
                     if bone.parent:
                         parent_mat = self.bone_transforms[bone.parent]
                     else:
-                        parent_mat = mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                        parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
                     relative_matrix = parent_mat.inverted() @ bone.matrix_local @ delta.inverted()
                     loc, rot, _ = relative_matrix.decompose()
                     writer.write_struct('<3f', -loc.x, loc.y, loc.z)
@@ -493,10 +493,10 @@ class Exporter:
                                     seen_vertex_uvs[uv] = vertex_idx
                                     vertex = mesh.vertices[orig_vertex_idx]
                                     vertex_info = VertexInfo(
-                                        position=vertex.co,
+                                        position=obj.matrix_world @ vertex.co,
                                         vertex_groups=[g for g in vertex.groups
                                                         if obj.vertex_groups[g.group].name in exported_vertex_groups],
-                                        normal = mesh.corner_normals[loop_idx].vector,
+                                        normal=obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector,
                                         uv=mesh.uv_layers[0].uv[loop_idx].vector,
                                     )
                                     extended_vertices.append(vertex_info)
@@ -595,9 +595,9 @@ class Exporter:
                 )
 
     def write_marks(self, writer: ChunkWriter):
-        if not bpy.data.armatures:
+        if not self.armature_obj:
             return
-        armature = bpy.data.armatures[0]
+        armature = self.armature_obj.data
         if 'Markers' in armature.collections:
             markers = armature.collections['Markers'].bones
         else:
@@ -614,7 +614,7 @@ class Exporter:
                     if marker.parent:
                         parent_mat = self.bone_transforms[marker.parent]
                     else:
-                        parent_mat = mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                        parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
                     transform = parent_mat.inverted() @ marker.matrix_local @ delta.inverted()
                     for row_idx in range(3):
                         writer.write_struct('<3f', *transform[row_idx][:3])
@@ -671,60 +671,51 @@ class Exporter:
                         if bone.parent:
                             parent_mat = self.bone_transforms[bone.parent]
                         else:
-                            parent_mat = mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                            parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
                         if self.format is ExportFormat.WHM:
                             writer.write_str(bone.name)
 
                         with self.start_chunk(writer, ExportFormat.SGM, 'DATABANM', name=bone.name):
                             loc_fcurves = [None] * 3
-                            loc_frames = {}
+                            loc_frames = set()
+
                             for fcurve in anim_sections['location'].get(bone_obj, []):
                                 loc_fcurves[fcurve.array_index] = fcurve
                                 for keyframe in fcurve.keyframe_points:
                                     frame, val = keyframe.co
-                                    frame_data = loc_frames.setdefault(frame, [None] * 3)
-                                    frame_data[fcurve.array_index] = val
-
-                            writer.write_struct('<l', len(loc_frames))
-                            curr_loc = bone.head_local.copy()
-                            for frame in sorted(loc_frames):
-                                writer.write_struct('<f', frame / max(frame_end, 1))
-                                frame_data = loc_frames[frame]
-                                for idx in range(3):
-                                    if idx in frame_data:
-                                        curr_loc[idx] = frame_data[idx]
-                                    elif loc_fcurves[idx] is not None:
-                                        curr_loc[idx] = loc_fcurves[idx].evaluate(frame)
-
-                                relative_matrix = parent_mat.inverted() @ bone.matrix_local @ mathutils.Matrix.Translation(curr_loc) @ delta.inverted()
-                                loc, rot, _ = relative_matrix.decompose()
-                                writer.write_struct('<3f', -loc.x, loc.y, loc.z)
+                                    loc_frames.add(frame)
 
                             rot_fcurves = [None] * 4
-                            rot_frames = {}
+                            rot_frames = set()
                             for fcurve in anim_sections['rotation_quaternion'].get(bone_obj, []):
                                 rot_fcurves[fcurve.array_index] = fcurve
                                 for keyframe in fcurve.keyframe_points:
                                     frame, val = keyframe.co
-                                    frame_data = rot_frames.setdefault(frame, [None] * 4)
-                                    frame_data[fcurve.array_index] = val
+                                    rot_frames.add(frame)
 
-                            writer.write_struct('<l', len(rot_frames))
-                            curr_rot = bone.matrix_local.to_quaternion()
-                            prev_rot = curr_rot
-                            for frame in sorted(rot_frames):
+                            all_frames = sorted(loc_frames | rot_frames)
+                            frame_data = []
+                            for frame in all_frames:
+                                loc = mathutils.Vector([fcurve.evaluate(frame) if fcurve is not None else 0
+                                                        for fcurve in loc_fcurves])
+                                rot = mathutils.Quaternion([fcurve.evaluate(frame) if fcurve is not None else 0
+                                                            for fcurve in rot_fcurves])
+                                frame_matrix = mathutils.Matrix.LocRotScale(loc, rot, None)
+                                relative_matrix = parent_mat.inverted() @ bone.matrix_local @ frame_matrix @ delta.inverted()
+                                frame_data.append(relative_matrix.decompose())
+
+                            writer.write_struct('<l', len(all_frames))
+                            for frame, (loc, rot, _) in zip(all_frames, frame_data):
                                 writer.write_struct('<f', frame / max(frame_end, 1))
-                                frame_data = rot_frames[frame]
-                                for idx in range(4):
-                                    if idx in frame_data:
-                                        curr_rot[idx] = frame_data[idx]
-                                    elif rot_fcurves[idx] is not None:
-                                        curr_rot[idx] = rot_fcurves[idx].evaluate(frame)
+                                writer.write_struct('<3f', -loc.x, loc.y, loc.z)
 
-                                relative_matrix = parent_mat.inverted() @ bone.matrix_local @ curr_rot.to_matrix().to_4x4() @ delta.inverted()
-                                loc, rot, _ = relative_matrix.decompose()
-                                rot.make_compatible(prev_rot)
-                                prev_rot = rot
+                            writer.write_struct('<l', len(all_frames))
+                            prev_rot = None
+                            for frame, (loc, rot, _) in zip(all_frames, frame_data):
+                                writer.write_struct('<f', frame / max(frame_end, 1))
+                                if prev_rot is not None:
+                                    rot.make_compatible(prev_rot)
+                                    prev_rot = rot
                                 writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
 
                             stale_flag = int(bone_obj not in anim_sections['stale'])

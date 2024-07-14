@@ -730,8 +730,9 @@ class WhmLoader:
                     self.messages.append(('INFO', f'Skipped unknown chunk {current_chunk.typeid}'))
                     reader.skip(current_chunk.size)  # Skipping Chunks By Default
 
-        for bone in self.armature_obj.pose.bones:
-            bone.matrix_basis = mathutils.Matrix()
+        if self.armature_obj.pose is not None:
+            for bone in self.armature_obj.pose.bones:
+                bone.matrix_basis = mathutils.Matrix()
         self.armature_obj.hide_set(True)
         for k, v in self.armature_obj.items():
             if k.startswith('visibility_'):
