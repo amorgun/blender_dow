@@ -347,6 +347,7 @@ class Exporter:
                 if image.packed_files:
                     dds_stream = io.BytesIO(image.packed_file.data)
                 else:
+                    # TODO fix relative paths
                     try:
                         dds_path = (temp_dir/texture_filename).with_suffix('.dds')
                         image.save(filepath=str(dds_path))
@@ -467,7 +468,7 @@ class Exporter:
                 many_bones_warn = False
                 with writer.start_chunk('FOLDMSLC', name=obj.name):
                     with writer.start_chunk('DATADATA'):
-                        writer.write_struct('<4xbL4x', 1, len(mesh.polygons))
+                        writer.write_struct('<4xbL4x', 1, len(mesh.loop_triangles))
                         vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
                         if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
                             assert vertex_groups[0].name in self.bone_to_idx, f'Cannot find bone {vertex_groups[0].name} for mesh {obj.name}'
@@ -485,9 +486,9 @@ class Exporter:
 
                         if len(mesh.uv_layers) != 1:
                             self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
-                        for poly in mesh.polygons:
+                        for poly in mesh.loop_triangles:
                             poly_vertices = []
-                            for loop_idx in poly.loop_indices:
+                            for loop_idx in poly.loops:
                                 orig_vertex_idx = mesh.loops[loop_idx].vertex_index
                                 uv = mesh.uv_layers[0].uv[loop_idx].vector.copy().freeze()
                                 seen_vertex_uvs = seen_uvs.setdefault(orig_vertex_idx, {})
@@ -541,7 +542,7 @@ class Exporter:
                         if self.format is ExportFormat.WHM:
                             writer.write_struct('<4x')
                         mat_faces = {}
-                        for poly, extended_verts in zip(mesh.polygons, extended_polygons):
+                        for poly, extended_verts in zip(mesh.loop_triangles, extended_polygons):
                             mat_faces.setdefault(poly.material_index, []).append(extended_verts)
                         materials = [(idx, m) for idx, m in enumerate(mesh.materials) if idx in mat_faces]
                         writer.write_struct('<l', len(materials))
@@ -550,7 +551,6 @@ class Exporter:
                             writer.write_struct('<l', len(mat_faces[mat_idx]) * 3)
                             min_poly_idx, max_poly_idx = float('+inf'), float('-inf')
                             for p in mat_faces[mat_idx]:
-                                assert len(p) == 3, f'Encountered non-triangular face at mesh {obj.name}. Triangulate it before exporting.'
                                 if not all(0 <= v <= 65535 for v in p):
                                     if not vert_warn:
                                         vert_warn = True
