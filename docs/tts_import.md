@@ -11,7 +11,7 @@ I will import a space marine model from [this mod](https://steamcommunity.com/sh
     - Load the mod
     - Right-click on the model, select "Custom" and copy URLs for model and texture.
     ![tts screenshot](../images/tts1.jpg)
-    - Open the URLs in a web browser and download the mesh and image.
+    - Open the URLs in a web browser and download the mesh and image.  
     Your browser may warn you about insecure download. Press "Keep".
     ![beowser screenshot](../images/tts2.png)
     - Open Blender and import the mesh.  
@@ -23,7 +23,7 @@ I will import a space marine model from [this mod](https://steamcommunity.com/sh
         - Add `Image Texture` node (`Right Click - Add- Image Texture`)
         - Click `Open` and select the downloaded texture
         - Connect `Color` and `Alpha` outputs to the matching inputs of the `Principled BSDF` node.
-    - Rename the material
+    - Rename the material  
       Material name is used for exported texture name. The name `Material.001` may cause collisions if you decide to import several models.  
         Double-click on the Material name and type a new name, e.g. `tts_space_marine`
     ![shader screenshot](../images/tts3.png)
