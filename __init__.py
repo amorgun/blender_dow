@@ -13,11 +13,15 @@ bl_info = {
 
 import pathlib
 import platform
+import sys
 
 import bpy
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from . import importer, exporter
+from . import importer, exporter, utils
+
+
+PACKAGES_LOCATION = utils.get_addon_packages_location(bl_info['name'])
 
 
 class AddonPreferences(bpy.types.AddonPreferences):
@@ -125,11 +129,23 @@ class ExportModel:
         name='Default texture folder',
     )
 
+    install_requirements: bpy.props.BoolProperty(
+        name='Install requirements',
+        description='Automatically install the required packages when they are needed. Requires an internet connection.',
+        default=True,
+    )
+
+    max_texture_size: bpy.props.IntProperty(
+        name='Max texture size',
+        description='Resize exported textures to the given max size.',
+        default=768,
+    )
+
     FORMAT: exporter.ExportFormat = None
 
     def execute(self, context):
         assert self.FORMAT is not None
-        preferences = context.preferences
+        preferences: AddonPreferences = context.preferences
         addon_prefs = preferences.addons[__package__].preferences
         filepath = pathlib.Path(self.filepath)
         data_folder = addon_prefs.mod_folder if self.data_location == 'mod_root' else filepath.with_suffix('')
@@ -145,6 +161,9 @@ class ExportModel:
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
+                                   install_requirements=self.install_requirements,
+                                   packages_location=PACKAGES_LOCATION,
+                                   max_texture_size=self.max_texture_size,
                                    context=context)
             try:
                 ex.export(writer, object_name=object_name, meta=self.meta)
@@ -160,7 +179,7 @@ class ExportWhm(bpy.types.Operator, ExportModel, ExportHelper):
     """Export Dawn of War .whm model file"""
     bl_idname = 'export_model.dow_whm'
     bl_label = 'Export .whm file'
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}
 
     filename_ext = ".whm"
 
@@ -177,7 +196,7 @@ class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
     """Export Dawn of War Object Editor .sgm model"""
     bl_idname = 'export_model.dow_sgm'
     bl_label = 'Export .sgm file'
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}
 
     filename_ext = ".sgm"
 
@@ -209,6 +228,7 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(import_menu_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
+    sys.path.append(str(PACKAGES_LOCATION))
 
 
 def unregister():
