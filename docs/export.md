@@ -41,7 +41,7 @@ Here I'll show steps on how to export [this](https://sketchfab.com/3d-models/ani
       The original model uses textures of size 1024x1024, and Object Editor really doesn't like it.  
       I'm using ImageMagick here, but there are probably other ways:  
       `ls -1 -I info.txt | xargs -I % convert % -resize 512 %.dds`
-    2. Copy .dds textures into the appropriate location inside `DataGeneric` mod folder (e.g. `art/ebps/races/space_marines/texture_share`). Check `info.txt` in the exported textures folder.
+    2. Copy .dds textures into the appropriate location inside `DataGeneric` mod folder (e.g. `art/ebps/races/space_marines/texture_share`). Check `info.txt` in the exported textures folder for the correct locations.
     3. Use [Texture Tool](https://skins.hiveworldterra.co.uk/Downloads/detail_DawnOfWarTextureTool.html) to convert copied `.dds` textures to `.rsh`.
 6. **Create `.whe`**
     1. Put the exported .sgm file inside the `DataGeneric` mod folder and open it with Object Editor
@@ -49,11 +49,12 @@ Here I'll show steps on how to export [this](https://sketchfab.com/3d-models/ani
 7. **Export the model to `.whm`**  
  Go to `File -> Export -> Dawn of War model (.whm)`.
 8. **Put converted textures, `.whm` and `.whe` files into your mod folder**  
-    I put the resulting `techgirl.whm` and `techgirl.whe` into `Data/art/ebps/races/space_marines/troops`
+    I put the resulting `techgirl.whm` and `techgirl.whe` into `Data/art/ebps/races/space_marines/troops`.  
+    Copy converted `.rsh` textures into the  appropriate location. Check `info.txt` in the exported textures folder near the `.whm` file for the correct locations.
 9. **Configure DoW to show your model in Army Painter**
     1. Open your mod with [Corsix's Mod Studio](https://modstudio.corsix.org/)
     2. Add an entity to `Data/attrib/ebps/races/space_marines/troops`  
         You can copy an existing file and change `entity_blueprint_ext - animator` value to `Races/Space_Marines/Troops/techgirl`  
-        Also set `ui_info - screen_name_id` value to `Techgirl` and data type to `Text`
+        Also set `ui_info - screen_name_id` value to `Techgirl` and  the data type to `Text`
     3. Edit `space_marine_race.rgd`.  
         Find `Data/attrib/racebps/space_marine_race.rgd` and set `teamcolour_preview - entity_03` value to `techgirl`.
