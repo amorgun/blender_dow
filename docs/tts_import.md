@@ -1,13 +1,19 @@
-Here is a process of importing a model from [Tabletop Simulator](https://store.steampowered.com/app/286160/Tabletop_Simulator/)(TTS) into DoW.
+# Import a model from the Tabletop Simulator
+
+Here are steps for importing a model from the [Tabletop Simulator](https://store.steampowered.com/app/286160/Tabletop_Simulator/)(TTS) into DoW.  
 I will import a space marine model from [this mod](https://steamcommunity.com/sharedfiles/filedetails/?id=3136633493).
+
+![army painter screenshot](../images/tts4.jpg)
 
 1. **Open the model**
     - Subscribe to the mod.
     - Open TTS to load the mod data.
     - Load the mod
     - Right-click on the model, select "Custom" and copy URLs for model and texture.
+    ![tts screenshot](../images/tts1.jpg)
     - Open the URLs in a web browser and download the mesh and image.
     Your browser may warn you about insecure download. Press "Keep".
+    ![beowser screenshot](../images/tts2.png)
     - Open Blender and import the mesh.  
     Go to `File - Import - Wavefromt (.obj)` and select mesh file.  
     Don't forget to remove the default cube.
@@ -20,12 +26,13 @@ I will import a space marine model from [this mod](https://steamcommunity.com/sh
     - Rename the material
       Material name is used for exported texture name. The name `Material.001` may cause collisions if you decide to import several models.  
         Double-click on the Material name and type a new name, e.g. `tts_space_marine`
+    ![shader screenshot](../images/tts3.png)
 1. **Export the model to `.whm`**  
  Go to `File -> Export -> Dawn of War model (.whm)`.
  Since the model is not animated you don't need a `.whe`.
 
 Then you can a new unit and add it to Army Painter [as described before](export.md#).
-I'll copy it here just for completness:
+I'll copy it here just for completeness:
 
 3. **Put the `.whm` files into your mod folder**  
     I put the resulting `tts_model.whm` into `Data/art/ebps/races/space_marines/troops`.
