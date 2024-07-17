@@ -103,6 +103,23 @@ class ExportModel:
         default=True,
     )
 
+    install_requirements: bpy.props.BoolProperty(
+        name='Install requirements',
+        description='Automatically install the required packages when they are needed. Requires an internet connection.',
+        default=True,
+    )
+
+    max_texture_size: bpy.props.IntProperty(
+        name='Max texture size',
+        description='Resize exported textures to the given max size.',
+        default=768,
+    )
+
+    default_texture_path: bpy.props.StringProperty(
+        default='art/ebps/races/space_marines/texture_share',
+        name='Default texture folder',
+    )
+
     data_location: bpy.props.EnumProperty(
         name='Data store location',
         description='How to store textures',
@@ -122,23 +139,6 @@ class ExportModel:
             ('full_path', 'Full path', 'Create nested directories according to data paths'),
         ),
         default='flat',
-    )
-
-    default_texture_path: bpy.props.StringProperty(
-        default='art/ebps/races/space_marines/texture_share',
-        name='Default texture folder',
-    )
-
-    install_requirements: bpy.props.BoolProperty(
-        name='Install requirements',
-        description='Automatically install the required packages when they are needed. Requires an internet connection.',
-        default=True,
-    )
-
-    max_texture_size: bpy.props.IntProperty(
-        name='Max texture size',
-        description='Resize exported textures to the given max size.',
-        default=768,
     )
 
     FORMAT: exporter.ExportFormat = None
