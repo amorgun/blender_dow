@@ -26,6 +26,18 @@ Blender addon for import and export of Dawn of War models.
 Often a simple `File -> Export -> Dawn of War model (.whm)` is enough.  
 There is a [detailed page](docs/export.md) with a full process of exporting and adding a new model into DoW.
 
+
+## Common problems
+### Mesh is not visible
+Either the mesh has too many vertices or you messed up with `force_invisible` in animations.
+### Model is pink
+DoW cannot load the texture. Usually it means you forgot to copy a `.rsh` file to the mod folder.  
+Check `warnings.log` inside DoW folder to find the offending file.
+Sometimes it's caused by the texture being too big.
+### Model is black
+It means DoW doesn't like the texture size. Make sure texture dimensions are both even.  
+Also try changing the `Max texture size` option during the Export dialog.
+
 ## Troubleshooting
 Make sure you are using Blender 4.1 or newer.  
 The addon reports some messages that you can find in [Info Editor](https://docs.blender.org/manual/en/latest/editors/info_editor.html).  
