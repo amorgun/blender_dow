@@ -603,7 +603,7 @@ class WhmLoader:
         add_driver(obj, 'color', self.armature_obj, f'["visibility__{mesh_name}"]', fallback_value=1.0, index=3)
         # add_driver(obj, 'hide_viewport', self.armature_obj, f'["force_invisible__{mesh_name}"]', fallback_value=False)  # works weirdly
         obj.parent = self.armature_obj
-        self.created_meshes[mesh_name] = obj
+        self.created_meshes[mesh_name.lower()] = obj
 
         #---< SET BONE MESH >---
 
@@ -693,7 +693,7 @@ class WhmLoader:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
             mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
             if mesh_parent_idx != -1:
-                mesh = self.created_meshes[mesh_name]
+                mesh = self.created_meshes[mesh_name.lower()]
                 vertex_group = mesh.vertex_groups.new(name=self.bone_array[mesh_parent_idx].name)
                 vertex_group.add(list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
             # if mesh_parent != -1 then
