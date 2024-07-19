@@ -41,13 +41,17 @@ def setup_property(obj, prop_name: str, value=None, **kwargs):
 
 
 def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, fallback_value, index: int = -1):
-    driver = obj.driver_add(obj_prop_path, index).driver    
-    var = driver.variables.new()
-    driver.type = 'SUM'
-    var.targets[0].id = target_id
-    var.targets[0].data_path = target_data_path
-    var.targets[0].use_fallback_value = True
-    var.targets[0].fallback_value = fallback_value
+    if index != -1:
+        drivers = [obj.driver_add(obj_prop_path, index).driver]
+    else:
+        drivers = [d.driver for d in obj.driver_add(obj_prop_path, index)]
+    for driver in drivers:
+        var = driver.variables.new()
+        driver.type = 'SUM'
+        var.targets[0].id = target_id
+        var.targets[0].data_path = target_data_path
+        var.targets[0].use_fallback_value = True
+        var.targets[0].fallback_value = fallback_value
 
 
 class WhmLoader:
@@ -67,6 +71,7 @@ class WhmLoader:
         self.bone_transform = {}
         self.created_materials = {}
         self.created_meshes = {}
+        self.created_cameras = {}
         self.model_root_collection = None
 
         self.armature = bpy.data.armatures.new('Armature')
@@ -124,7 +129,7 @@ class WhmLoader:
             return self.created_materials[material_path]
         material_name = pathlib.Path(material_path).name
         mat = bpy.data.materials.new(name=material_name)
-        setup_property(mat, 'full_path', material_path, subtype='FILE_PATH', description='Path to export this texture')
+        setup_property(mat, 'full_path', material_path, subtype='FILE_PATH', description='Path to export this material')
         mat.blend_method = 'CLIP'
         mat.show_transparent_back = False
         mat.use_nodes = True
@@ -165,7 +170,7 @@ class WhmLoader:
                 continue
             input_names, node_label = {
                 0: (['Base Color', 'Emission Color'], 'diffuse'),
-                1: (['Specular IOR Level'], 'specularity'),
+                1: (['Specular IOR Level'], 'specularity'),  # FIXME metallic
                 2: (['Specular Tint'], 'reflection'),
                 3: (['Emission Strength'], 'self_illumination'),
                 4: (['Alpha'], 'opacity'),
@@ -273,12 +278,12 @@ class WhmLoader:
         for i in range(num_markers):  # -- Read All Markers
             marker_name = reader.read_str()  # -- Read Marker Name
             parent_name = reader.read_str()  # -- Read Parent Name
-            transform = mathutils.Matrix()
+            transform = mathutils.Matrix().to_3x3()
             for row_idx in range(3):  # -- Read Matrix
                 transform[row_idx][:3] = reader.read_struct('<3f')
             x, y, z = reader.read_struct('<3f')
 
-            transform = mathutils.Matrix.Translation([-x, y, z]) @ transform
+            transform = mathutils.Matrix.LocRotScale([-x, y, z], transform, None)
 
             marker = self.armature.edit_bones.new(marker_name)  # -- Create Bone and Set Name
             marker.head = (0, 0, 0)
@@ -299,6 +304,61 @@ class WhmLoader:
                 parent_mat = self.bone_transform[parent_name]
             marker.matrix =  parent_mat @ transform @ mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
             self.bone_transform[marker_name] = parent_mat @ transform
+        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+
+    def CH_DATACAMS(self, reader: ChunkReader):
+        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+        bone_collection = self.armature.collections.new('Cameras')
+        cameras_collection = bpy.data.collections.new('Cameras')
+        self.model_root_collection.children.link(cameras_collection)
+
+        num_cams = reader.read_one('<l')
+        for _ in range(num_cams):
+            cam_name = reader.read_str()
+            x, z, y = reader.read_struct('<3f')
+            rot = reader.read_struct('<4f')
+            fov, clip_start, clip_end = reader.read_struct('<3f')
+            focus_point = reader.read_struct('<3f')
+
+            transform = mathutils.Matrix.LocRotScale(
+                mathutils.Vector([-x, -y, z]),
+                mathutils.Quaternion([rot[1], rot[2], rot[0], -rot[3]]),
+                None,
+            )
+
+            bone = self.armature.edit_bones.new(cam_name)
+            bone.head = (0, 0, 0)
+            bone.tail = (0.25, 0, 0)
+            bone_collection.assign(bone)
+            bone.color.palette = 'CUSTOM'
+            bone.color.custom.normal = mathutils.Color([154, 17, 21]) / 255
+            bone.matrix = transform
+
+            cam = bpy.data.cameras.new(cam_name)
+            cam.clip_start, cam.clip_end = clip_start, clip_end
+
+            empty = bpy.data.objects.new(f'{cam_name}_focus', None)
+            cameras_collection.objects.link(empty)
+            empty.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
+            empty.empty_display_type = 'SPHERE'
+            cam.dof.use_dof = True
+            cam.dof.focus_object = empty
+            cam.lens_unit = 'FOV'
+            cam.angle = fov
+            cam.passepartout_alpha = 0
+
+            cam_obj = bpy.data.objects.new(cam_name, cam)
+            cameras_collection.objects.link(cam_obj)
+            cam_obj.parent = self.armature_obj
+            cam_obj.parent_bone = cam_name
+            cam_obj.parent_type = 'BONE'
+            cam_obj.matrix_parent_inverse = mathutils.Matrix.LocRotScale(
+                mathutils.Vector([0, -bone.length, 0]),
+                mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_3x3(),
+                None,
+            )
+            self.bone_orig_transform[cam_name] = transform
+            self.created_cameras[cam_name] = cam_obj
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
@@ -437,18 +497,37 @@ class WhmLoader:
 
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
-            # print(f'{animation_name=} {num_cams=}')
-            # if num_cams:
-            #     self.messages.append(('INFO', 'We have cameras!'))
-
-            for k in range(num_cams):  # -- Read Cameras
+            for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
-                # self.messages.append(('INFO', f'CAM NAME {cam_name}'))
+                if cam_name in self.created_cameras:
+                    bone = self.armature_obj.pose.bones[cam_name]
+                    orig_transform = self.bone_orig_transform[cam_name]
                 cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys (?)
-                reader.skip(cam_pos_keys * 16)  # -- Skip Camera Position Keys
-                cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys (?)
-                reader.skip(cam_rot_keys * 20)  # -- Skip Camera Rotation Keys
+                for _ in range(cam_pos_keys):
+                    frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
+                    x, z, y = reader.read_struct('<3f')
+                    if cam_name not in self.created_cameras:
+                        continue
+                    new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, -y, z]))
 
+                    new_mat = orig_transform.inverted() @ new_transform
+                    loc, *_ = new_mat.decompose()
+                    bone.location = loc
+                    self.armature_obj.keyframe_insert(data_path=f'pose.bones["{cam_name}"].location', frame=frame, group=bone_name)
+
+                cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys (?)
+                orig_rot = orig_transform.to_quaternion()  # FIXME
+                for _ in range(cam_rot_keys):
+                    frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
+                    key_rot = reader.read_struct('<4f')
+                    if cam_name not in self.created_cameras:
+                        continue
+                    new_transform = mathutils.Quaternion([key_rot[1], key_rot[2], key_rot[0], -key_rot[3]])
+
+                    new_rot = orig_rot.inverted() @ new_transform
+                    new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
+                    bone.rotation_quaternion = new_rot
+                    self.armature_obj.keyframe_insert(data_path=f'pose.bones["{cam_name}"].rotation_quaternion', frame=frame, group=bone_name)
         # ---< DATAANBV >---
 
         current_chunk = reader.read_header('DATAANBV')
@@ -714,7 +793,7 @@ class WhmLoader:
         self.model_root_collection.objects.link(self.armature_obj)
 
         internal_textures = {}
-        
+
         for current_chunk in reader.iter_chunks():  # Read Chunks Until End Of File
             match current_chunk.typeid:
                 case "DATASSHR": self.CH_DATASSHR(reader)  # DATASSHR - Texture Data
@@ -722,11 +801,12 @@ class WhmLoader:
                     internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
                 case "FOLDSHDR":  # FOLDSHDR - Internal Material
                     mat = self.CH_FOLDSHDR(reader, current_chunk.name, internal_textures)
-                    setup_property(mat, 'internal', True, description='Do not export this material to separate file')
+                    setup_property(mat, 'internal', True, description='Do not export this material to a separate file and keep it inside the model file')
                 case "DATASKEL": self.CH_DATASKEL(reader, xref=False)  # DATASKEL - Skeleton Data
                 case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
                 case "DATAMARK": self.CH_DATAMARK(reader)  # DATAMARK - Marker Data
                 case "FOLDANIM": self.CH_FOLDANIM(reader)  # FOLDANIM - Animations
+                case "DATACAMS": self.CH_DATACAMS(reader)  # DATACAMS - Cameras
                 case _:
                     self.messages.append(('INFO', f'Skipped unknown chunk {current_chunk.typeid}'))
                     reader.skip(current_chunk.size)  # Skipping Chunks By Default
@@ -755,6 +835,9 @@ def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
 
     for mesh in bpy.data.meshes:
         bpy.data.meshes.remove(mesh)
+
+    for cam in bpy.data.cameras:
+        bpy.data.cameras.remove(cam)
 
     with target_path.open('rb') as f:
         reader = ChunkReader(f)

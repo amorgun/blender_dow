@@ -65,6 +65,8 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
             bpy.ops.wm.read_homefile(app_template='')
             for mesh in bpy.data.meshes:
                 bpy.data.meshes.remove(mesh)
+            for cam in bpy.data.cameras:
+                bpy.data.cameras.remove(cam)
         preferences = context.preferences
         addon_prefs = preferences.addons[__package__].preferences
         with open(self.filepath, 'rb') as f:
