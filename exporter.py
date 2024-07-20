@@ -252,14 +252,17 @@ class Exporter:
                 continue
             mat_path = pathlib.PurePosixPath(self.get_material_path(mat))
 
-            exported_nodes = {k: mat.node_tree.nodes.get(k) for k in ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']}
+            exported_nodes = {node.label: node
+                              for node in mat.node_tree.nodes
+                              if node.bl_idname == 'ShaderNodeTexImage'
+                              and node.label in ('diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity')}
             for slot, input_idname in [
                 ('diffuse', 'Base Color'),
                 ('specularity', 'Specular IOR Level'),
                 ('reflection', 'Specular Tint'),
                 ('self_illumination', 'Emission Strength'),
             ]:
-                if not exported_nodes[slot]:
+                if slot not in exported_nodes:
                     for link in mat.node_tree.links:
                         if (
                             link.to_node.bl_idname == 'ShaderNodeBsdfPrincipled'
@@ -268,13 +271,13 @@ class Exporter:
                         ):
                             exported_nodes[slot] = link.from_node
                             break
-            if not exported_nodes['diffuse']:
+            if 'diffuse' not in exported_nodes:
                 for node in mat.node_tree.nodes:
                     if node.bl_idname == 'ShaderNodeTexImage':
                         exported_nodes['diffuse'] = node
                         break
 
-            if not exported_nodes['diffuse']:
+            if 'diffuse' not in exported_nodes:
                 self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
                 continue
 
@@ -359,9 +362,10 @@ class Exporter:
 
     def write_material(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         texture_declared_paths = {}
+        known_keys = ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
-            for key in ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']:
+            for key in known_keys:
                 image = images.get(key)
                 if not image:
                     continue
@@ -415,6 +419,7 @@ class Exporter:
                     else:
                         alpha_hist = pil_image.getchannel('A').histogram()
                         has_alpha = any([a > 0 for a in alpha_hist[:-1]])
+                        # TODO test for 1-bit alpha
                     tmp_dds_path = temp_dir / key
                     if has_alpha:
                         quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(tmp_dds_path)
@@ -432,18 +437,27 @@ class Exporter:
                             with texture_stream:
                                 shutil.copyfileobj(texture_stream, writer)
             with writer.start_chunk('FOLDSHDR', name=mat_name):
+                has_extra_layers = any(images.get(k) is not None for k in known_keys if k != 'diffuse')
                 with writer.start_chunk('DATAINFO'):
-                    writer.write_struct('<2L4BLx', 6, 7, 204, 204, 204, 61, 1)  # the first 204 sometimes is 205
-                for channel_idx, key in enumerate(['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity', 'unknown']):
+                    writer.write_struct('<2L4BLx', 6, 7, 204 + has_extra_layers, 204, 204, 61, 1)
+                for channel_idx, key in enumerate(known_keys + ['unknown']):
                     with writer.start_chunk('DATACHAN'):
-                        method_idx = {
-                            0: 1,
-                        }.get(channel_idx, 0)
-                        writer.write_struct('<2l4B', channel_idx, method_idx, *([255, 255, 255, 255] if channel_idx == 4 else [0, 0, 0, 255]))
+                        has_data = images.get(key) is not None
+                        colour_mask = {
+                            0: [0, 0, 0, 255] if has_extra_layers else [150, 150, 150, 255],
+                            1: [0, 0, 0, 255] if has_extra_layers else [229, 229, 229, 255],
+                            4: [0, 0, 0, 255] if has_data else [255, 255, 255, 255],
+                        }.get(channel_idx, [0, 0, 0, 255])
+                        writer.write_struct('<2l4B', channel_idx, int(has_data), *colour_mask)
                         writer.write_str(str(texture_declared_paths.get(key, '')))
-                        writer.write_struct('<l l 4x', 1, 4)  # num_coords
-                        for _ in range(4):
-                            for c in [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]:
+                        # dst_channel_idx = 1 if key in images else channel_idx
+                        writer.write_struct('<3L', int(has_data), 4, 6 if key == 'reflection' else 0)  # num_coords
+                        for idx in range(4):
+                            pairs = [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]
+                            if idx % 2 == 1:
+                                # pairs = reversed(pairs)
+                                pairs = pairs[3:] + pairs[:3]
+                            for c in pairs:
                                 writer.write_struct('<2f', *c)
         return True
 
