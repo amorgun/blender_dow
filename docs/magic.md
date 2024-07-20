@@ -3,11 +3,13 @@ The DoW model format contains a lot of info that's not easily translated into Bl
 
 ## Material
 ### Attributes
-| **Name** | **Description** |
-|----------|-----------------|
-| full_path | Path to export this material. Useful for reusing the same `.rsh` between different models. |
-| internal | Do not export this material to a separate file and keep it inside the model file|
+| **Name** | **Type** | **Description** |
+|----------|---------|--------|
+| full_path | str | Path to export this material. Useful for reusing the same `.rsh` between different models. |
+| internal | bool | Do not export this material to a separate file and keep it inside the model file|
 ### Node names
+The addon can guess what images to export to the channels of the resulting `.rsh` file.  
+For better control over it you can set the name of an Image Texture node to one of these values:
 | **Name** |
 |----------|
 | diffuse |
@@ -19,9 +21,9 @@ The DoW model format contains a lot of info that's not easily translated into Bl
 
 ## Bone
 ### Attributes
-| **Name** | **Animation frames** | **Description** |
-|----------|-----------------|------------|
-| Stale | First | Apply it to each bone you want to disable in an animation. |
+| **Name** | **Type** | **Animation frames** | **Description** |
+|----------|-------|---------|------------|
+| Stale | bool | First | Apply it to each bone you want to disable in an animation. |
 ### Bone collections
 | **Name** | **Description** |
 |----------|-----------------|
@@ -30,13 +32,14 @@ The DoW model format contains a lot of info that's not easily translated into Bl
 
 ## Mesh
 ### Attributes
-| **Name** | **Description** |
-|----------|-----------------|
-| xref_source | Reference this mesh from an external file instead of this model. |
+| **Name** | **Type** | **Description** |
+|----------|----|-------------|
+| xref_source | str | Reference this mesh from an external file instead of this model. |
  
 
 ## Armature
 ### Attributes
+DoW mostly uses skeletal animation so if you want to animate stuff like texture UV offset [you need to use attributes of the armature](https://blenderartists.org/t/how-do-actions-with-multiple-objects-work/1525242).
 | **Name** | **Animation frames** | **Type** | **Description** |
 |----------|-------------|----|------------|
 | force_invisible__<mesh_name> | First | bool | Force the mesh to be invisible in the current animation |
