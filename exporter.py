@@ -450,12 +450,10 @@ class Exporter:
                         }.get(channel_idx, [0, 0, 0, 255])
                         writer.write_struct('<2l4B', channel_idx, int(has_data), *colour_mask)
                         writer.write_str(str(texture_declared_paths.get(key, '')))
-                        # dst_channel_idx = 1 if key in images else channel_idx
                         writer.write_struct('<3L', int(has_data), 4, 6 if key == 'reflection' else 0)  # num_coords
                         for idx in range(4):
                             pairs = [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]
                             if idx % 2 == 1:
-                                # pairs = reversed(pairs)
                                 pairs = pairs[3:] + pairs[:3]
                             for c in pairs:
                                 writer.write_struct('<2f', *c)
