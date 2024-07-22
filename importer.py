@@ -217,7 +217,7 @@ class WhmLoader:
             0: 'primary',
             1: 'secondary',
             2: 'trim',
-            3: 'weapon',
+            3: 'weapons',
             4: 'eyes',
             5: 'dirt',
             -1: 'default',
