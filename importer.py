@@ -1,6 +1,7 @@
 import dataclasses
 import pathlib
 import math
+import tempfile
 
 import bpy
 import mathutils
@@ -55,11 +56,16 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
 
 
 class WhmLoader:
-    def __init__(self, root: pathlib.Path, context=None):
+    TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
+    TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
+
+    def __init__(self, root: pathlib.Path, load_wtp: bool = True, context=None):
         self.root = root
+        self.wtp_load_enabled = load_wtp
         self.bpy_context = context
         if self.bpy_context is None:
             self.bpy_context = bpy.context
+        self.messages = []
 
     def _reset(self):
         self.texture_count = 0
@@ -78,31 +84,36 @@ class WhmLoader:
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
         self.armature_obj.show_in_front = True
 
-        self.messages = []
-
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
 
         if material_path not in self.loaded_material_paths:
             full_material_path = self.root / 'Data' / f'{material_path}.rsh'
-
             if not full_material_path.exists():
                 self.messages.append(('WARNING', f'Cannot find texture {full_material_path}'))
                 return
-            
             with full_material_path.open('rb') as f:
-                self.load_rsh(ChunkReader(f), material_path)  # -- create new material
+                material = self.load_rsh(ChunkReader(f), material_path)  # -- create new material
+            if self.wtp_load_enabled:
+                full_teamcolor_path = self.root / 'Data' / f'{material_path}_default.wtp'
+                if not full_teamcolor_path.exists():
+                    self.messages.append(('INFO', f'Cannot find {full_teamcolor_path}'))
+                else:
+                    with full_teamcolor_path.open('rb') as f:
+                        self.load_wtp(ChunkReader(f), material_path, material)
             self.loaded_material_paths.add(material_path)
 
     def load_rsh(self, reader: ChunkReader, material_path: str):
         reader.skip_relic_chunky()
         current_chunk = reader.read_header('FOLDSHRF')  # Skip 'Folder SHRF' Header
         loaded_textures = {}
+        material = None
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
-                case 'FOLDSHDR': self.CH_FOLDSHDR(reader, material_path, loaded_textures)
+                case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, material_path, loaded_textures)
                 case _: reader.skip(current_chunk.size)
+        return material
 
     def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str):  # Chunk Handler - Internal Texture
         current_chunk = reader.read_header('DATAHEAD')
@@ -135,7 +146,7 @@ class WhmLoader:
         mat.use_nodes = True
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
-        
+
         current_chunk = reader.read_header('DATAINFO')
         num_images, *info_bytes = reader.read_struct('<2L 4B L x')
 
@@ -195,6 +206,179 @@ class WhmLoader:
         add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][1]', fallback_value=1, index=1)
         self.created_materials[material_path] = mat
         return mat
+
+    def load_wtp(self, reader: ChunkReader, material_path: str, material):
+        reader.skip_relic_chunky()
+        current_chunk = reader.read_header('FOLDTPAT')
+        loaded_textures = {}
+        current_chunk = reader.read_header('DATAINFO')
+        width, height = reader.read_struct('<2L')
+        layer_names = {
+            0: 'primary',
+            1: 'secondary',
+            2: 'trim',
+            3: 'weapon',
+            4: 'eyes',
+            5: 'dirt',
+            -1: 'default',
+        }
+        material_name = pathlib.Path(material_path).name
+        default_image_size = 0, 0
+        badge_data = None
+        banner_data = None
+        for current_chunk in reader.iter_chunks():
+            match current_chunk.typeid:
+                case 'DATAPTLD':
+                    layer_in, data_size = reader.read_struct('<2L')
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in]}.tga', 'wb') as f:
+                            textures.write_tga(
+                                reader.stream, f, data_size, width, height, grayscale=True)
+                        image = bpy.data.images.load(f.name)
+                        image.pack()
+                        image.use_fake_user = True
+                        loaded_textures[layer_names[layer_in]] = image
+                case 'FOLDIMAG':
+                    current_chunk = reader.read_header('DATAATTR')
+                    image_format, width, height, num_mips = reader.read_struct('<4L')
+                    default_image_size = width, height
+                    current_chunk = reader.read_header('DATADATA')
+                    layer_in = -1
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in]}.tga', 'wb') as f:
+                            textures.write_tga(
+                                reader.stream, f, current_chunk.size, width, height, grayscale=False)
+                        image = bpy.data.images.load(f.name)
+                        image.pack()
+                        image.use_fake_user = True
+                        loaded_textures[layer_names[layer_in]] = image
+                case 'DATAPTBD':  # badge - 64 by 64
+                    badge_data = reader.read_struct('<4f')
+                case 'DATAPTBN':  # banner - 96 by 64
+                    banner_data = reader.read_struct('<4f')
+                case _:
+                    self.messages.append(('INFO', f'Unknown .wtp chunk {current_chunk.typeid} ({material_path})'))
+                    reader.skip(current_chunk.size)
+
+        links = material.node_tree.links
+        common_node_pos_x, common_node_pos_y = -600, 3100
+        uf_offset_node = [
+            node for node in material.node_tree.nodes
+            if node.bl_idname == 'ShaderNodeMapping'
+            and node.label == 'UV offset'
+        ][0]
+        flip_texture_node = material.node_tree.nodes.new('ShaderNodeMapping')
+        flip_texture_node.label = 'Flip'
+        flip_texture_node.location = common_node_pos_x, common_node_pos_y
+        flip_texture_node.inputs['Location'].default_value = (0, 1, 0)
+        flip_texture_node.inputs['Scale'].default_value = (1, -1, 1)
+        links.new(uf_offset_node.outputs[0], flip_texture_node.inputs['Vector'])
+        created_tex_nodes = {}
+        prev_color_output = None
+        for layer_name in layer_names.values():
+            node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
+            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
+            created_tex_nodes[layer_name] = node_tex
+            if layer_name in loaded_textures:
+                node_tex.image = loaded_textures[layer_name]
+            else:
+                node_tex.hide = True
+            node_tex.location = node_pos_x + 200, node_pos_y
+            node_tex.label = f'color_layer_{layer_name}'
+            links.new(flip_texture_node.outputs[0], node_tex.inputs['Vector'])
+
+            if layer_name in self.TEAMCOLORABLE_LAYERS:
+                node_color = material.node_tree.nodes.new('ShaderNodeValToRGB')
+                node_color.label = f'color_{layer_name}'
+                node_color.location = node_pos_x + 480, node_pos_y
+                node_color.width = 100
+                links.new(node_tex.outputs[0], node_color.inputs['Fac'])
+                if prev_color_output is None:
+                    prev_color_output = node_color.outputs[0]
+                else:
+                    node_mix = material.node_tree.nodes.new('ShaderNodeMixRGB')
+                    node_mix.blend_type = 'ADD'
+                    node_mix.inputs['Fac'].default_value = 1
+                    node_mix.location = node_pos_x + 650, node_pos_y
+                    links.new(prev_color_output, node_mix.inputs['Color1'])
+                    links.new(node_color.outputs['Color'], node_mix.inputs['Color2'])
+                    prev_color_output = node_mix.outputs[0]
+
+        img_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
+        img_size_node.inputs['X'].default_value = default_image_size[0]
+        img_size_node.inputs['Y'].default_value = default_image_size[1]
+        img_size_node.label = 'color_layer_size'
+        img_size_node.location = common_node_pos_x - 300, common_node_pos_y - 290 * len(created_tex_nodes) + 200
+
+        for layer_name, layer_data in [
+            ('badge', badge_data),
+            ('banner', banner_data),
+        ]:
+            if layer_data is None:
+                node_name = f'UNUSED_{layer_name}'
+                layer_data = 0, 0, 0, 0
+            else:
+                node_name = layer_name
+            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
+            data_pos_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
+            data_pos_node.inputs['X'].default_value = layer_data[0]
+            data_pos_node.inputs['Y'].default_value = layer_data[1]
+            data_pos_node.location = node_pos_x - 300, node_pos_y
+            data_pos_node.label = f'{layer_name}_position'
+
+            data_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
+            data_size_node.inputs['X'].default_value = layer_data[2]
+            data_size_node.inputs['Y'].default_value = layer_data[3]
+            data_size_node.location = node_pos_x - 300, node_pos_y - 150
+            data_size_node.label = f'{layer_name}_display_size'
+
+            calc_pos_node = material.node_tree.nodes.new('ShaderNodeVectorMath')
+            calc_pos_node.operation = 'DIVIDE'
+            calc_pos_node.location = node_pos_x - 150, node_pos_y
+            links.new(data_pos_node.outputs[0], calc_pos_node.inputs[0])
+            links.new(img_size_node.outputs[0], calc_pos_node.inputs[1])
+
+            calc_scale_node = material.node_tree.nodes.new('ShaderNodeVectorMath')
+            calc_scale_node.operation = 'DIVIDE'
+            calc_scale_node.location = node_pos_x - 150, node_pos_y - 150
+            links.new(data_size_node.outputs[0], calc_scale_node.inputs[0])
+            links.new(img_size_node.outputs[0], calc_scale_node.inputs[1])
+
+            scale_node = material.node_tree.nodes.new('ShaderNodeMapping')
+            scale_node.vector_type = 'TEXTURE'
+            scale_node.location = node_pos_x, node_pos_y
+            links.new(flip_texture_node.outputs[0], scale_node.inputs['Vector'])
+            links.new(calc_pos_node.outputs[0], scale_node.inputs['Location'])
+            links.new(calc_scale_node.outputs[0], scale_node.inputs['Scale'])
+
+            node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
+            created_tex_nodes[layer_name] = node_tex
+            # node_tex.hide = True
+            node_tex.extension = 'CLIP'
+            node_tex.location = node_pos_x + 200, node_pos_y
+            node_tex.label = node_name
+            links.new(scale_node.outputs[0], node_tex.inputs['Vector'])
+
+            node_mix = material.node_tree.nodes.new('ShaderNodeMixRGB')
+            node_mix.blend_type = 'MIX'
+            node_mix.location = node_pos_x + 480, node_pos_y
+            links.new(node_tex.outputs['Alpha'], node_mix.inputs['Fac'])
+            links.new(prev_color_output, node_mix.inputs['Color1'])
+            links.new(node_tex.outputs['Color'], node_mix.inputs['Color2'])
+            prev_color_output = node_mix.outputs[0]
+
+        node_mix_dirt = material.node_tree.nodes.new('ShaderNodeMixRGB')
+        node_mix_dirt.blend_type = 'ADD'
+        node_mix_dirt.location = common_node_pos_x + 650, common_node_pos_y - 290 * (len(created_tex_nodes) - 1)
+        links.new(created_tex_nodes['dirt'].outputs['Color'], node_mix_dirt.inputs['Fac'])
+        links.new(prev_color_output, node_mix_dirt.inputs['Color1'])
+        links.new(created_tex_nodes['default'].outputs['Color'], node_mix_dirt.inputs['Color2'])
+
+        if 'default' in loaded_textures:
+            links.new(node_mix_dirt.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
+            links.new(node_mix_dirt.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
+        else:
+            self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
@@ -819,8 +1003,46 @@ class WhmLoader:
             if k.startswith('visibility_'):
                 self.armature_obj[k] = 1.
 
+    def load_teamcolor(self, path: pathlib.Path | str) -> dict:
+        from .slpp import slpp as lua
 
-def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
+        with open(path, 'r') as f:
+            text = f.read()
+            teamcolor = lua.decode(f'{{{text}}}')
+        res = {}
+        for k in self.TEAMCOLORABLE_LAYERS:
+            color = teamcolor.get('UnitCustomization', {}).get(k.title())
+            if color:
+                res[k] = mathutils.Color([color[i] / 255. for i in 'rgb'])
+        for k in self.TEAMCOLORABLE_IMAGES:
+            path = teamcolor.get('LocalInfo', {}).get(f'{k}_name')
+            if path is None:
+                continue
+            path = self.root / 'data/art' / f'{k}s' / f'{path}.tga'
+            if not path.exists():
+                self.messages.append(('WARNING', f'Cannot find {k} {path}'))
+                continue
+            res[k] = path
+        return res
+
+    def apply_teamcolor(self, teamcolor: dict):
+        color_node_names = {f'color_{i}' for i in self.TEAMCOLORABLE_LAYERS}
+        for mat in bpy.data.materials:
+            if mat.node_tree is None:
+                continue
+            for node in mat.node_tree.nodes:
+                if node.bl_idname == 'ShaderNodeValToRGB' and node.label in color_node_names:
+                    key = node.label[len('color_'):]
+                    if teamcolor.get(key) is None:
+                        continue
+                    node.color_ramp.elements[-1].color[:3] = teamcolor[key][:3]
+                    continue
+                if node.bl_idname == 'ShaderNodeTexImage' and node.label in self.TEAMCOLORABLE_IMAGES and teamcolor.get(node.label) is not None:
+                        node.image = bpy.data.images.load(str(teamcolor[node.label]))
+                        node.image.pack()
+
+
+def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
     print('------------------')
 
     for action in bpy.data.actions:
@@ -841,9 +1063,12 @@ def import_whm(module_root: pathlib.Path, target_path: pathlib.Path):
 
     with target_path.open('rb') as f:
         reader = ChunkReader(f)
-        loader = WhmLoader(module_root)
+        loader = WhmLoader(module_root, load_wtp=teamcolor_path is not None)
         try:
             loader.load(reader)
+            if teamcolor_path:
+                teamcolor = loader.load_teamcolor(teamcolor_path)
+                loader.apply_teamcolor(teamcolor)
         finally:
             for _, msg in loader.messages:
                 print(msg)

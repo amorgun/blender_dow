@@ -60,7 +60,7 @@ def install_packages(*packages: list[str], only_binary: bool = True, packages_lo
         importlib.invalidate_caches()
 
 
-def get_addon_packages_location(addon_name: str) -> pathlib.Path:
+def get_addon_location(addon_name: str) -> pathlib.Path:
     for mod in addon_utils.modules():
         if mod.bl_info['name'] == addon_name:
-            return pathlib.Path(mod.__file__).parent / 'site-packages'
+            return pathlib.Path(mod.__file__).parent

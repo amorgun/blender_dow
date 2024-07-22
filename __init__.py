@@ -21,7 +21,8 @@ from bpy_extras.io_utils import ImportHelper, ExportHelper
 from . import importer, exporter, utils
 
 
-PACKAGES_LOCATION = utils.get_addon_packages_location(bl_info['name'])
+ADDON_LOCATION = utils.get_addon_location(bl_info['name'])
+PACKAGES_LOCATION = ADDON_LOCATION / 'site-packages'
 
 
 class AddonPreferences(bpy.types.AddonPreferences):
@@ -36,8 +37,62 @@ class AddonPreferences(bpy.types.AddonPreferences):
         ) / 'Dawn of War/My_Mod').expanduser()),
     )
 
+    primary_color: bpy.props.FloatVectorProperty(
+        name='Primary',
+        default=(0.43, 0.08, 0.00),
+        subtype='COLOR',
+    )
+
+    secondary_color: bpy.props.FloatVectorProperty(
+        name='Secondary',
+        default=(0.63, 0.53, 0.38),
+        subtype='COLOR',
+    )
+
+    trim_color: bpy.props.FloatVectorProperty(
+        name='Trim',
+        default=(0.22, 0.16, 0.16),
+        subtype='COLOR',
+    )
+
+    weapons_color: bpy.props.FloatVectorProperty(
+        name='Weapon',
+        default=(0.16, 0.16, 0.16),
+        subtype='COLOR',
+    )
+
+    eyes_color: bpy.props.FloatVectorProperty(
+        name='Eyes',
+        default=(0.01, 0.01, 0.01),
+        subtype='COLOR',
+    )
+
+    badge_path: bpy.props.StringProperty(
+        name="Badge",
+        description='Path to the badge image',
+        subtype='FILE_PATH',
+        default=str(ADDON_LOCATION/'default_badge.tga'),
+    )
+
+    banner_path: bpy.props.StringProperty(
+        name="Banner",
+        description='Path to the banner image',
+        subtype='FILE_PATH',
+        default=str(ADDON_LOCATION/'default_banner.tga'),
+    )
+
     def draw(self, context):
         self.layout.prop(self, 'mod_folder')
+        teamcolor_panel_header, teamcolor_panel = self.layout.panel('default_teamcolor')
+        teamcolor_panel_header.label(text='Default teamcolor')
+        if teamcolor_panel is not None:
+            teamcolor_panel.row().prop(self, 'primary_color')
+            teamcolor_panel.row().prop(self, 'secondary_color')
+            teamcolor_panel.row().prop(self, 'trim_color')
+            teamcolor_panel.row().prop(self, 'weapon_color')
+            teamcolor_panel.row().prop(self, 'eyes_color')
+            teamcolor_panel.prop(self, 'badge_path')
+            teamcolor_panel.prop(self, 'banner_path')
 
 
 class ImportWhm(bpy.types.Operator, ImportHelper):
@@ -60,6 +115,12 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         default=True,
     )
 
+    load_wtp: bpy.props.BoolProperty(
+        name='Team colourable',
+        description='Load matching .wtp files',
+        default=False,
+    )
+
     def execute(self, context):
         if self.new_project:
             bpy.ops.wm.read_homefile(app_template='')
@@ -68,14 +129,19 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
             for cam in bpy.data.cameras:
                 bpy.data.cameras.remove(cam)
         preferences = context.preferences
-        addon_prefs = preferences.addons[__package__].preferences
+        addon_prefs: AddonPreferences = preferences.addons[__package__].preferences
         with open(self.filepath, 'rb') as f:
             reader = importer.ChunkReader(f)
-            loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), context=context)
+            loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), load_wtp=self.load_wtp, context=context)
             window = context.window_manager.windows[0]
             with context.temp_override(window=window):
                 try:
                     loader.load(reader)
+                    if self.load_wtp:
+                        loader.apply_teamcolor({
+                            **{k: getattr(addon_prefs, f'{k}_color') for k in loader.TEAMCOLORABLE_LAYERS},
+                            **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
+                        })
                     for area in context.screen.areas:
                         if area.type == 'VIEW_3D':
                             space = area.spaces.active
@@ -84,6 +150,44 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                 finally:
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)
+        return {'FINISHED'}
+
+
+class ImportTeamcolor(bpy.types.Operator, ImportHelper):
+    """Import Dawn of War .teamcolour file"""
+    bl_idname = 'import_model.dow_teamcolour'
+    bl_label = 'Import .teamcolour file'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = '.teamcolour'
+
+    filter_glob: bpy.props.StringProperty(
+        default='*.teamcolour',
+        options={'HIDDEN'},
+        maxlen=255,
+    )
+
+    set_as_defaul: bpy.props.BoolProperty(
+        name='Save as default',
+        description='Keep this color scheme as the default for other models',
+        default=False,
+    )
+
+    def execute(self, context):
+        preferences = context.preferences
+        addon_prefs: AddonPreferences = preferences.addons[__package__].preferences
+        loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), context=context)
+        try:
+            teamcolor = loader.load_teamcolor(self.filepath)
+            loader.apply_teamcolor(teamcolor)
+            if self.set_as_defaul:
+                for c in loader.TEAMCOLORABLE_LAYERS:
+                    setattr(addon_prefs, f'{c}_color', teamcolor.get(c, getattr(addon_prefs, f'{c}_color')))
+                for c in loader.TEAMCOLORABLE_IMAGES:
+                    setattr(addon_prefs, f'{c}_path', str(teamcolor.get(c, getattr(addon_prefs, f'{c}_path'))))
+        finally:
+            for message_lvl, message in loader.messages:
+                self.report({message_lvl}, message)
         return {'FINISHED'}
 
 
@@ -211,12 +315,17 @@ class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
     FORMAT = exporter.ExportFormat.SGM
 
 
-def import_menu_func(self, context):
+def import_menu_whm_func(self, context):
     self.layout.operator(ImportWhm.bl_idname, text='Dawn of War model (.whm)')
+
+
+def import_menu_teamcolor_func(self, context):
+    self.layout.operator(ImportTeamcolor.bl_idname, text='Dawn of War color scheme (.teamcolour)')
 
 
 def export_menu_whm_func(self, context):
     self.layout.operator(ExportWhm.bl_idname, text='Dawn of War model (.whm)')
+
 
 def export_menu_sgm_func(self, context):
     self.layout.operator(ExportSgm.bl_idname, text='Dawn of War Object Editor model (.sgm)')
@@ -224,10 +333,12 @@ def export_menu_sgm_func(self, context):
 
 def register():
     bpy.utils.register_class(ImportWhm)
+    bpy.utils.register_class(ImportTeamcolor)
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(AddonPreferences)
-    bpy.types.TOPBAR_MT_file_import.append(import_menu_func)
+    bpy.types.TOPBAR_MT_file_import.append(import_menu_whm_func)
+    bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
     sys.path.append(str(PACKAGES_LOCATION))
@@ -236,8 +347,10 @@ def register():
 def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
-    bpy.types.TOPBAR_MT_file_import.remove(import_menu_func)
+    bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)
+    bpy.types.TOPBAR_MT_file_import.remove(import_menu_whm_func)
     bpy.utils.unregister_class(AddonPreferences)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
+    bpy.utils.unregister_class(ImportTeamcolor)
     bpy.utils.unregister_class(ImportWhm)

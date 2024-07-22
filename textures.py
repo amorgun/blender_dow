@@ -35,6 +35,26 @@ def write_dds(
     dst.write(src.read(data_size))
 
 
+def write_tga(
+    src: io.BufferedIOBase,
+    dst: io.BufferedIOBase,
+    data_size: int,
+    width: int,
+    height: int,
+    grayscale: bool = False
+):
+    # See http://www.paulbourke.net/dataformats/tga/
+    header = struct.Struct('<3B 2HB 4H2B').pack(
+        0,  # ID length
+        0,  # file contains no color map
+        3 if grayscale else 2,  # uncompressed grayscale image
+        0, 0, 32,  # Color Map Specification
+        0, 0, width, height, 8 if grayscale else 32, 0,  # Image Specification.
+    )
+    dst.write(header)
+    dst.write(src.read(data_size))
+
+
 def read_dds_header(src: io.BufferedIOBase):
     fmt = '< 4s 8x 3l 4x l 44x 8x 4s 20x 8x 12x'
     data = src.read(struct.calcsize(fmt))
