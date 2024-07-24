@@ -8,15 +8,26 @@ The DoW model format contains a lot of info that's not easily translated into Bl
 | full_path | str | Path to export this material. Useful for reusing the same `.rsh` between different models. |
 | internal | bool | Do not export this material to a separate file and keep it inside the model file|
 ### Node names
-The addon can guess what images to export to the channels of the resulting `.rsh` file.  
-For better control over it you can set the name of an Image Texture node to one of these values:
-| **Name** |
-|----------|
-| diffuse |
-| specularity |
-| reflection |
-| self_illumination |
-| opacity |
+The addon can guess what images to export to the channels of the resulting `.rsh` and `.wtp` file.  
+For better control over it you can set the name of a Shader Node node to one of these values:
+| **Name** | **Exported to** | **Node type** |
+|----------|----------|----------|
+| diffuse | .rsh | Image Texture |
+| specularity | .rsh | Image Texture |
+| reflection | .rsh | Image Texture |
+| self_illumination | .rsh | Image Texture |
+| opacity | .rsh | Image Texture |
+| color_layer_default | .wtp | Image Texture |
+| color_layer_dirt | .wtp | Image Texture |
+| color_layer_primary | .wtp | Image Texture |
+| color_layer_secondary | .wtp | Image Texture |
+| color_layer_trim | .wtp | Image Texture |
+| color_layer_weapons | .wtp | Image Texture |
+| color_layer_eyes | .wtp | Image Texture |
+| badge_position | .wtp | Combine XYZ |
+| badge_display_size | .wtp | Combine XYZ |
+| banner_position | .wtp | Combine XYZ |
+| banner_display_size | .wtp | Combine XYZ |
 
 
 ## Bone

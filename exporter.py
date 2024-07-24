@@ -189,7 +189,7 @@ class Exporter:
             if self.format is ExportFormat.WHM:
                 self.write_meta(writer, meta)
             with writer.start_chunk('FOLDRSGM', name=object_name):
-                self.write_textures(writer)
+                self.write_materials(writer)
                 self.write_skel(writer)
                 orig_pose = {}
                 if self.armature_obj:
@@ -244,88 +244,149 @@ class Exporter:
             writer.write_str(meta)
             writer.write_str(datetime.datetime.utcnow().strftime('%B %d, %I:%M:%S %p'))
 
-    def write_textures(self, writer: ChunkWriter):
+    def write_materials(self, writer: ChunkWriter):
         self.exported_materials = {}
         for mat in bpy.data.materials:
-            if not mat.node_tree:
-                self.messages.append(('WARNING', f'No nodes for material {mat.name}'))
-                continue
-            mat_path = pathlib.PurePosixPath(self.get_material_path(mat))
+            self.write_material(writer, mat)
 
-            exported_nodes = {node.label: node
-                              for node in mat.node_tree.nodes
-                              if node.bl_idname == 'ShaderNodeTexImage'
-                              and node.label in ('diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity')}
-            for slot, input_idname in [
-                ('diffuse', 'Base Color'),
-                ('specularity', 'Specular IOR Level'),
-                ('reflection', 'Specular Tint'),
-                ('self_illumination', 'Emission Strength'),
-            ]:
-                if slot not in exported_nodes:
-                    for link in mat.node_tree.links:
-                        if (
-                            link.to_node.bl_idname == 'ShaderNodeBsdfPrincipled'
-                            and link.to_socket.label == input_idname
-                            and link.from_node.bl_idname == 'ShaderNodeTexImage'
-                        ):
-                            exported_nodes[slot] = link.from_node
-                            break
-            if 'diffuse' not in exported_nodes:
-                for node in mat.node_tree.nodes:
-                    if node.bl_idname == 'ShaderNodeTexImage':
-                        exported_nodes['diffuse'] = node
+    def write_material(self, writer: ChunkWriter, mat) -> bool:
+        if not mat.node_tree:
+            self.messages.append(('WARNING', f'No nodes for material {mat.name}'))
+            return
+
+        mat_path = pathlib.PurePosixPath(self.get_material_path(mat))
+        exported_nodes = {node.label: node
+                        for node in mat.node_tree.nodes
+                        if node.bl_idname == 'ShaderNodeTexImage'
+                        and node.label in ('diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity')}
+        for slot, input_idname in [
+            ('diffuse', 'Base Color'),
+            ('specularity', 'Specular IOR Level'),
+            ('reflection', 'Specular Tint'),
+            ('self_illumination', 'Emission Strength'),
+        ]:
+            if slot not in exported_nodes:
+                for link in mat.node_tree.links:
+                    if (
+                        link.to_node.bl_idname == 'ShaderNodeBsdfPrincipled'
+                        and link.to_socket.label == input_idname
+                        and link.from_node.bl_idname == 'ShaderNodeTexImage'
+                    ):
+                        exported_nodes[slot] = link.from_node
                         break
+        if 'diffuse' not in exported_nodes:
+            for node in mat.node_tree.nodes:
+                if node.bl_idname == 'ShaderNodeTexImage':
+                    exported_nodes['diffuse'] = node
+                    break
 
-            if 'diffuse' not in exported_nodes:
-                self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
-                continue
+        if 'diffuse' not in exported_nodes:
+            self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
+            return
 
-            images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
-            if mat.get('internal'):
-                export_success = self.write_material(writer, images_to_export, mat_path)
-                if not export_success:
-                    return False
-                self.exported_materials[mat.name] = str(mat_path)
-                continue
-            with writer.start_chunk('DATASSHR', name=str(mat_path)):  # Unused, can be deleted
-                writer.write_str(str(mat_path))
+        images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
+        if mat.get('internal'):
+            export_success = self.write_rsh_chunks(writer, images_to_export, mat_path)
+            if not export_success:
+                return
             self.exported_materials[mat.name] = str(mat_path)
+            return
 
-            if self.convert_textures:
-                dst_path = self.paths.get_path(f'{mat_path}.rsh')
-                if self.export_rsh(
-                    images_to_export,
-                    dst_path,
-                    mat_path,
-                    mat.name,
-                ):
-                    self.paths.add_info(f'{mat_path}.rsh', dst_path)
-                    continue
-            for slot, node in exported_nodes.items():
-                if node is None:
-                    continue
-                image_name = mat_path.name or pathlib.Path(node.image.filepath).name or node.image.name
+        with writer.start_chunk('DATASSHR', name=str(mat_path)):  # Unused, can be deleted
+            writer.write_str(str(mat_path))
+        self.exported_materials[mat.name] = str(mat_path)
 
-                def get_suffix(path: str):
-                    suffix = pathlib.Path(path).suffix
-                    if suffix and any(i.isalpha() for i in suffix):
-                        return suffix
-                    return ''
+        teamcolor_node_labels = {
+            f'color_layer_{slot}' for slot in ('primary', 'secondary', 'trim', 'weapons', 'eyes' ,'dirt', 'default')
+        } | {'badge', 'banner'}
+        teamcolor_image_nodes = {
+            node.label: node
+            for node in mat.node_tree.nodes
+            if node.bl_idname == 'ShaderNodeTexImage'
+                and node.label in teamcolor_node_labels
+        }
+        teamcolor_badge_info = {
+            node.label[len('badge_'):]: (
+                node.inputs['X'].default_value,
+                node.inputs['Y'].default_value,
+            )
+            for node in mat.node_tree.nodes
+            if node.bl_idname == 'ShaderNodeCombineXYZ'
+                and node.label in ('badge_position', 'badge_display_size')
+        }
+        teamcolor_banner_info = {
+            node.label[len('banner_'):]: (
+                node.inputs['X'].default_value,
+                node.inputs['Y'].default_value,
+            )
+            for node in mat.node_tree.nodes
+            if node.bl_idname == 'ShaderNodeCombineXYZ'
+                and node.label in ('banner_position', 'banner_display_size')
+        }
 
-                suffix = get_suffix(node.image.filepath) or get_suffix(node.image.name) or get_suffix(mat.name)
-                dst_file = self.paths.get_path((mat_path / image_name).with_suffix(suffix), require_parent=True)
-                dst_file.parent.mkdir(parents=True, exist_ok=True)
-                if node.image.packed_files:
-                    with dst_file.open('wb') as f:
-                        f.write(node.image.packed_file.data)
-                else:
-                    try:
-                        node.image.save(filepath=str(dst_file))
-                    except Exception as e:
-                        self.messages.append(('WARNING', f'Error while converting image {node.image.name}: {e!r}'))
+        if self.convert_textures:
+            rsh_path = self.paths.get_path(f'{mat_path}.rsh')
+            if self.export_rsh(
+                images_to_export,
+                rsh_path,
+                mat_path,
+                mat.name,
+            ):
+                self.paths.add_info(f'{mat_path}.rsh', rsh_path)
+
+            wtp_path = self.paths.get_path(f'{mat_path}_default.wtp')
+            if self.export_wtp(
+                {k: v.image if v else v for k, v in teamcolor_image_nodes.items()},
+                teamcolor_badge_info,
+                teamcolor_banner_info,
+                wtp_path,
+                mat_path,
+                mat.name,
+            ):
+                self.paths.add_info(f'{mat_path}_default.wtp', wtp_path)
+        else:
+            for image_prefix, dst_suffix, images in [
+                ('', '.rsh', {
+                    slot: node for slot, node in exported_nodes.items()
+                    if node is not None and node.image is not None
+                }),
+                ('teamcolour_', '_default.wtp', {
+                    slot: node for slot, node in teamcolor_image_nodes.items()
+                    if node is not None and node.image is not None
+                }),
+            ]:
+
+                for slot, node in images.items():
+                    if node is None:
                         continue
-                self.paths.add_info(f'{mat_path}.rsh', dst_file)
+                    image_name, image_suffix = self.guess_image_name_and_suffix(node.image, mat)
+                    if len(exported_nodes) == 1:
+                        image_name = mat_path.name
+
+                    dst_file = self.paths.get_path((mat_path / f'{image_prefix}{image_name}.{image_suffix}'), require_parent=True)
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    if node.image.packed_files:
+                        with dst_file.open('wb') as f:
+                            f.write(node.image.packed_file.data)
+                    else:
+                        try:
+                            node.image.save(filepath=str(dst_file))
+                        except Exception as e:
+                            self.messages.append(('WARNING', f'Error while converting image {node.image.name}: {e!r}'))
+                            continue
+                    self.paths.add_info(f'{mat_path}{dst_suffix}', dst_file)
+
+    def guess_image_name_and_suffix(self, image, material) -> tuple[str, str]:
+            image_name = pathlib.Path(image.filepath).name or image.name
+
+            def get_suffix(path: str):
+                suffix = pathlib.Path(path).suffix
+                if suffix and any(i.isalpha() for i in suffix):
+                    return suffix
+                return ''
+
+            suffix = get_suffix(image.filepath) or get_suffix(image.name) or get_suffix(material.name)
+            return image_name, suffix
 
     def export_rsh(self, images: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         with tempfile.TemporaryDirectory() as t:
@@ -353,14 +414,14 @@ class Exporter:
                 })
                 self.write_relic_chunky(writer)
                 with writer.start_chunk('FOLDSHRF', name=mat_name):
-                    export_success = self.write_material(writer, images, declared_path, mat_name)
+                    export_success = self.write_rsh_chunks(writer, images, declared_path, mat_name)
                     if not export_success:
                         return False
             dst_path.parent.mkdir(exist_ok=True, parents=True)
             shutil.copy(exported_file, dst_path)
         return True
 
-    def write_material(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
+    def write_rsh_chunks(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         texture_declared_paths = {}
         known_keys = ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']
         with tempfile.TemporaryDirectory() as t:
@@ -457,6 +518,105 @@ class Exporter:
                                 pairs = pairs[3:] + pairs[:3]
                             for c in pairs:
                                 writer.write_struct('<2f', *c)
+        return True
+
+    def export_wtp(self, images: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
+        with tempfile.TemporaryDirectory() as t:
+            temp_dir = pathlib.Path(t)
+            exported_file = temp_dir / dst_path.name
+            with exported_file.open('wb') as f:
+                writer = ChunkWriter(f, {
+                    'FOLDTPAT': {
+                        'version': 3,
+                        'DATAINFO': {'version': 1},
+                        'DATAPTLD': {'version': 1},
+                        'FOLDIMAG': {
+                            'version': 1,
+                            'DATAATTR': {'version': 2},
+                            'DATADATA': {'version': 2},
+                        },
+                        'DATAPTBD': {'version': 1},
+                        'DATAPTBN': {'version': 1},
+                    }
+                })
+                self.write_relic_chunky(writer)
+
+                def image_to_tga(image, dst: str | pathlib.Path, width: int, height: int, grayscale: bool = False):
+                    image = image.copy()
+                    if not image.packed_files:
+                        image.pack()
+                    image.scale(width, height)
+
+                    backup_file_format = self.bpy_context.scene.render.image_settings.file_format
+                    backup_color_mode = self.bpy_context.scene.render.image_settings.color_mode
+                    backup_color_depth = self.bpy_context.scene.render.image_settings.color_depth
+                    backup_compression = self.bpy_context.scene.render.image_settings.compression
+
+                    self.bpy_context.scene.render.image_settings.file_format = 'TARGA'
+                    self.bpy_context.scene.render.image_settings.color_mode = 'BW' if grayscale else 'RGB'
+                    self.bpy_context.scene.render.image_settings.color_depth = '8'
+                    self.bpy_context.scene.render.image_settings.compression = 0
+
+                    image.save_render(str(dst), scene=self.bpy_context.scene)
+
+                    self.bpy_context.scene.render.image_settings.file_format = backup_file_format
+                    self.bpy_context.scene.render.image_settings.color_mode = backup_color_mode
+                    self.bpy_context.scene.render.image_settings.color_depth = backup_color_depth
+                    self.bpy_context.scene.render.image_settings.compression = backup_compression
+                    bpy.data.images.remove(image)
+
+                with writer.start_chunk('FOLDTPAT', name='default'):
+                    width, height = next((map(int, i.size) for i in images.values() if i is not None), (512, 512))  # FIXME
+                    with writer.start_chunk('DATAINFO'):
+                        writer.write_struct('<2L', width, height)
+                    for layer_idx, layer_name in [
+                        (0, 'primary'),
+                        (1, 'secondary'),
+                        (2, 'trim'),
+                        (3, 'weapons'),
+                        (4, 'eyes'),
+                        (5, 'dirt'),
+                    ]:
+                        if not (img := images.get(f'color_layer_{layer_name}')):
+                            continue
+                        with writer.start_chunk('DATAPTLD'):
+                            tmp_file = temp_dir / f'{layer_name}.tga'
+                            try:
+                                image_to_tga(img, tmp_file, width, height, grayscale=True)
+                            except Exception as e:
+                                self.messages.append(('WARNING', f'Error while converting {img.name}: {e!r}'))
+                                return False
+                            with tmp_file.open('rb') as f:
+                                tga_data = f.read()
+                            tga_data = tga_data[18 + tga_data[0]:]
+                            writer.write_struct('<2L', layer_idx, len(tga_data))
+                            writer.write(tga_data)
+
+                    if default_image := images.get('color_layer_default'):
+                        with writer.start_chunk('FOLDIMAG'):
+                            with writer.start_chunk('DATAATTR'):
+                                writer.write_struct('<4L', 0, width, height, 1)
+                            with writer.start_chunk('DATADATA'):
+                                tmp_file = temp_dir / 'default.tga'
+                                try:
+                                    image_to_tga(default_image, tmp_file, width, height, grayscale=False)
+                                except Exception as e:
+                                    self.messages.append(('WARNING', f'Error while converting {default_image.name}: {e!r}'))
+                                    return False
+                                with tmp_file.open('rb') as f:
+                                    tga_data = f.read()
+                                tga_data = tga_data[18 + tga_data[0]:]
+                                writer.write(tga_data)
+                    for key, data, chunk_name, default_size in [
+                        ('badge', badge_info, 'DATAPTBD', (64, 64)),
+                        ('banner', banner_info, 'DATAPTBN', (64, 96)),
+                    ]:
+                        if not images.get(key):
+                            continue
+                        with writer.start_chunk(chunk_name):
+                            writer.write_struct('<4f', *data.get('position', [0, 0]), *data.get('display_size', default_size))
+            dst_path.parent.mkdir(exist_ok=True, parents=True)
+            shutil.copy(exported_file, dst_path)
         return True
 
     @classmethod

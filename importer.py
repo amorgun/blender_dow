@@ -223,7 +223,7 @@ class WhmLoader:
             -1: 'default',
         }
         material_name = pathlib.Path(material_path).name
-        default_image_size = 0, 0
+        default_image_size = width, height
         badge_data = None
         banner_data = None
         for current_chunk in reader.iter_chunks():
@@ -241,7 +241,6 @@ class WhmLoader:
                 case 'FOLDIMAG':
                     current_chunk = reader.read_header('DATAATTR')
                     image_format, width, height, num_mips = reader.read_struct('<4L')
-                    default_image_size = width, height
                     current_chunk = reader.read_header('DATADATA')
                     layer_in = -1
                     with tempfile.TemporaryDirectory() as tmpdir:
