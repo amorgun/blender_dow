@@ -59,9 +59,10 @@ class WhmLoader:
     TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
 
-    def __init__(self, root: pathlib.Path, load_wtp: bool = True, context=None):
+    def __init__(self, root: pathlib.Path, load_wtp: bool = True, create_cameras: bool = False, context=None):
         self.root = root
         self.wtp_load_enabled = load_wtp
+        self.create_cameras = create_cameras
         self.bpy_context = context
         if self.bpy_context is None:
             self.bpy_context = bpy.context
@@ -516,7 +517,10 @@ class WhmLoader:
             bone.color.palette = 'CUSTOM'
             bone.color.custom.normal = mathutils.Color([154, 17, 21]) / 255
             bone.matrix = transform
+            self.bone_orig_transform[cam_name] = transform
 
+            if not self.create_cameras:
+                continue
             cam = bpy.data.cameras.new(cam_name)
             cam.clip_start, cam.clip_end = clip_start, clip_end
 
@@ -540,7 +544,6 @@ class WhmLoader:
                 mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_3x3(),
                 None,
             )
-            self.bone_orig_transform[cam_name] = transform
             self.created_cameras[cam_name] = cam_obj
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 

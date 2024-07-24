@@ -121,6 +121,12 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         default=False,
     )
 
+    create_cameras: bpy.props.BoolProperty(
+        name='Cameras',
+        description='Create cameras and focus objects',
+        default=False,
+    )
+
     def execute(self, context):
         if self.new_project:
             bpy.ops.wm.read_homefile(app_template='')
@@ -132,7 +138,12 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         addon_prefs: AddonPreferences = preferences.addons[__package__].preferences
         with open(self.filepath, 'rb') as f:
             reader = importer.ChunkReader(f)
-            loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), load_wtp=self.load_wtp, context=context)
+            loader = importer.WhmLoader(
+                pathlib.Path(addon_prefs.mod_folder),
+                load_wtp=self.load_wtp,
+                create_cameras=self.create_cameras,
+                context=context,
+            )
             window = context.window_manager.windows[0]
             with context.temp_override(window=window):
                 try:
