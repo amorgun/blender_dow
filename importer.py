@@ -152,7 +152,6 @@ class WhmLoader:
         num_images, *info_bytes = reader.read_struct('<2L 4B L x')
 
         node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')
-        node_uv.from_instancer = True
         node_uv.location = -800, 200
         node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
         node_uv_offset.label = 'UV offset'
