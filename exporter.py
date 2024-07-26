@@ -522,7 +522,7 @@ class Exporter:
         return True
 
     def export_wtp(self, images: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
-        if not any(images.values()):
+        if not any(images.values()) or images.get('color_layer_default') is None or images.get('color_layer_dirt') is None :
             return False
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
