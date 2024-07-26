@@ -423,19 +423,20 @@ class Exporter:
 
     def write_rsh_chunks(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         texture_declared_paths = {}
-        known_keys = ['diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity']
+        known_keys = {
+            'diffuse': '',
+            'specularity': '_spec',
+            'reflection': '_reslect',
+            'self_illumination': '_self_illum',
+            'opacity': '_alpha',
+        }
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
-            for key in known_keys:
+            for key, path_suffix in known_keys.items():
                 image = images.get(key)
                 if not image:
                     continue
-                image_path = pathlib.Path(image.filepath)
-                if '.dds' in image_path.name:
-                    texture_filename = image_path.name[:image_path.name.rfind('.dds')]
-                else:
-                    texture_filename = image_path.name or image.name
-                texture_declared_path = declared_path.parent / texture_filename
+                texture_declared_path = f'{declared_path}{path_suffix}'  # used fow locating .wtp
                 texture_declared_paths[key] = texture_declared_path
 
                 texture_data = None
@@ -501,7 +502,7 @@ class Exporter:
                 has_extra_layers = any(images.get(k) is not None for k in known_keys if k != 'diffuse')
                 with writer.start_chunk('DATAINFO'):
                     writer.write_struct('<2L4BLx', 6, 7, 204 + has_extra_layers, 204, 204, 61, 1)
-                for channel_idx, key in enumerate(known_keys + ['unknown']):
+                for channel_idx, key in enumerate(list(known_keys) + ['unknown']):
                     with writer.start_chunk('DATACHAN'):
                         has_data = images.get(key) is not None
                         colour_mask = {
@@ -554,8 +555,8 @@ class Exporter:
                     backup_color_depth = self.bpy_context.scene.render.image_settings.color_depth
                     backup_compression = self.bpy_context.scene.render.image_settings.compression
 
-                    self.bpy_context.scene.render.image_settings.file_format = 'TARGA'
-                    self.bpy_context.scene.render.image_settings.color_mode = 'BW' if grayscale else 'RGB'
+                    self.bpy_context.scene.render.image_settings.file_format = 'TARGA_RAW'
+                    self.bpy_context.scene.render.image_settings.color_mode = 'BW' if grayscale else 'RGBA'
                     self.bpy_context.scene.render.image_settings.color_depth = '8'
                     self.bpy_context.scene.render.image_settings.compression = 0
 
@@ -568,7 +569,9 @@ class Exporter:
                     bpy.data.images.remove(image)
 
                 with writer.start_chunk('FOLDTPAT', name='default'):
-                    width, height = next((map(int, i.size) for i in images.values() if i is not None), (512, 512))  # FIXME
+                    width, height = next((map(int, i.size) for k, i in images.items()
+                                          if i is not None and k not in ('badge', 'banner')),
+                                          (512, 512))  # FIXME
                     with writer.start_chunk('DATAINFO'):
                         writer.write_struct('<2L', width, height)
                     for layer_idx, layer_name in [
