@@ -6,7 +6,7 @@ import tempfile
 import bpy
 import mathutils
 
-from . import textures
+from . import textures, utils
 from .chunky import ChunkReader
 from .utils import print
 
@@ -235,6 +235,7 @@ class WhmLoader:
                             textures.write_tga(
                                 reader.stream, f, data_size, width, height, grayscale=True)
                         image = bpy.data.images.load(f.name)
+                        image = utils.flip_image_y(image)
                         image.pack()
                         image.use_fake_user = True
                         loaded_textures[layer_names[layer_in]] = image
@@ -248,6 +249,7 @@ class WhmLoader:
                             textures.write_tga(
                                 reader.stream, f, current_chunk.size, width, height, grayscale=False)
                         image = bpy.data.images.load(f.name)
+                        image = utils.flip_image_y(image)
                         image.pack()
                         image.use_fake_user = True
                         loaded_textures[layer_names[layer_in]] = image
@@ -266,12 +268,6 @@ class WhmLoader:
             if node.bl_idname == 'ShaderNodeMapping'
             and node.label == 'UV offset'
         ][0]
-        flip_texture_node = material.node_tree.nodes.new('ShaderNodeMapping')
-        flip_texture_node.label = 'Flip'
-        flip_texture_node.location = common_node_pos_x, common_node_pos_y
-        flip_texture_node.inputs['Location'].default_value = (0, 1, 0)
-        flip_texture_node.inputs['Scale'].default_value = (1, -1, 1)
-        links.new(uf_offset_node.outputs[0], flip_texture_node.inputs['Vector'])
         created_tex_nodes = {}
         prev_color_output = None
         for layer_name in layer_names.values():
@@ -284,7 +280,7 @@ class WhmLoader:
                 node_tex.hide = True
             node_tex.location = node_pos_x + 200, node_pos_y
             node_tex.label = f'color_layer_{layer_name}'
-            links.new(flip_texture_node.outputs[0], node_tex.inputs['Vector'])
+            links.new(uf_offset_node.outputs[0], node_tex.inputs['Vector'])
 
             if layer_name in self.TEAMCOLORABLE_LAYERS:
                 node_color = material.node_tree.nodes.new('ShaderNodeValToRGB')
@@ -308,6 +304,13 @@ class WhmLoader:
         img_size_node.inputs['Y'].default_value = default_image_size[1]
         img_size_node.label = 'color_layer_size'
         img_size_node.location = common_node_pos_x - 300, common_node_pos_y - 290 * len(created_tex_nodes) + 200
+
+        flip_texture_node = material.node_tree.nodes.new('ShaderNodeMapping')
+        flip_texture_node.label = 'Flip'
+        flip_texture_node.location = common_node_pos_x - 450, common_node_pos_y - 290 * len(created_tex_nodes) + 200
+        flip_texture_node.inputs['Location'].default_value = (0, 1, 0)
+        flip_texture_node.inputs['Scale'].default_value = (1, -1, 1)
+        links.new(uf_offset_node.outputs[0], flip_texture_node.inputs['Vector'])
 
         for layer_name, layer_data in [
             ('badge', badge_data),

@@ -549,6 +549,7 @@ class Exporter:
                     if not image.packed_files:
                         image.pack()
                     image.scale(width, height)
+                    image = utils.flip_image_y(image)
 
                     backup_file_format = self.bpy_context.scene.render.image_settings.file_format
                     backup_color_mode = self.bpy_context.scene.render.image_settings.color_mode

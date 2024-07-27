@@ -64,3 +64,16 @@ def get_addon_location(addon_name: str) -> pathlib.Path:
     for mod in addon_utils.modules():
         if mod.bl_info['name'] == addon_name:
             return pathlib.Path(mod.__file__).parent
+
+
+def flip_image_y(image):
+    import itertools
+
+    width, height = image.size
+    row_size = width * image.channels
+    pixels_orig = image.pixels[:]
+    pixels = (pixels_orig[(height - row - 1) * row_size: (height - row) * row_size] for row in range(height))
+    pixels = itertools.chain.from_iterable(pixels)
+    pixels = list(pixels)
+    image.pixels[:] = pixels
+    return image
