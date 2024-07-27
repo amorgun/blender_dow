@@ -85,6 +85,10 @@ class WhmLoader:
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
         self.armature_obj.show_in_front = True
 
+        self.default_image = bpy.data.images.new('NOT_SET', 1, 1)
+        self.default_image['PLACEHOLDER'] = True
+        self.default_image.use_fake_user = True
+
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
 
@@ -278,6 +282,7 @@ class WhmLoader:
                 node_tex.image = loaded_textures[layer_name]
             else:
                 node_tex.hide = True
+                node_tex.image = self.default_image
             node_tex.location = node_pos_x + 200, node_pos_y
             node_tex.label = f'color_layer_{layer_name}'
             links.new(uf_offset_node.outputs[0], node_tex.inputs['Vector'])
@@ -319,8 +324,10 @@ class WhmLoader:
             if layer_data is None:
                 node_name = f'UNUSED_{layer_name}'
                 layer_data = 0, 0, 0, 0
+                default_image = self.default_image
             else:
                 node_name = layer_name
+                default_image = None
             node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
             data_pos_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
             data_pos_node.inputs['X'].default_value = layer_data[0]
@@ -359,6 +366,9 @@ class WhmLoader:
             node_tex.extension = 'CLIP'
             node_tex.location = node_pos_x + 200, node_pos_y
             node_tex.label = node_name
+            if default_image is not None:
+                node_tex.image = default_image
+                node_tex.hide = True
             links.new(scale_node.outputs[0], node_tex.inputs['Vector'])
 
             node_mix = material.node_tree.nodes.new('ShaderNodeMixRGB')

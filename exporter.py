@@ -585,6 +585,8 @@ class Exporter:
                     ]:
                         if not (img := images.get(f'color_layer_{layer_name}')):
                             continue
+                        if img.get('PLACEHOLDER', False):
+                            continue
                         with writer.start_chunk('DATAPTLD'):
                             tmp_file = temp_dir / f'{layer_name}.tga'
                             try:
