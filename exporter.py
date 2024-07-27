@@ -522,6 +522,7 @@ class Exporter:
         return True
 
     def export_wtp(self, images: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
+        images = {k: v for k, v in images.items() if v and not v.get('PLACEHOLDER', False)}
         if not any(images.values()) or images.get('color_layer_default') is None or images.get('color_layer_dirt') is None :
             return False
         with tempfile.TemporaryDirectory() as t:
@@ -584,8 +585,6 @@ class Exporter:
                         (5, 'dirt'),
                     ]:
                         if not (img := images.get(f'color_layer_{layer_name}')):
-                            continue
-                        if img.get('PLACEHOLDER', False):
                             continue
                         with writer.start_chunk('DATAPTLD'):
                             tmp_file = temp_dir / f'{layer_name}.tga'
