@@ -3,7 +3,7 @@ bl_info = {
     'description': 'Import and export of Dawn of War models',
     'author': 'amorgun',
     'license': 'GPL',
-    'version': (0, 12),
+    'version': (0, 13),
     'blender': (4, 1, 0),
     'doc_url': 'https://github.com/amorgun/blender_dow',
     'tracker_url': 'https://github.com/amorgun/blender_dow/issues',
