@@ -25,17 +25,17 @@ Here I'll show steps on how to export [this](https://sketchfab.com/3d-models/ani
         For the `Body` mesh it's a good idea to instead remove vertices with Body material and then switch material for the remaining slot from `FullBlack.001` back to `Body` and flip all face normals of the mesh. This way you can save small details like eyelashes.   
         Additionally you can remove parts of `Body` hidden by other meshes.
     2. Add `Decimate` modifiers  
-        For the majority of meshes you can simply add a `Decimate` modifier and set the Ratio to about 0.2.
-        It is also required that all polygons are triangular, so add a `Triangulate` modifier as well.  
+        For the majority of meshes you can simply add a `Decimate` modifier and set the Ratio to about 0.2.  
         You can use vertex groups to limit a Decimate modifier to a part of the mesh, e. g. keep face detailed while affecting the rest of the `Body` mesh.
 3. **Remove unnecessary materials**  
     Go through the mesh list and remove `FullBlack` and `FullBlack.001` materials.  
     The addon cannot export them because they don't have an image and the model looks fine without them.
 4. **Export the model to `.sgm`**  
     Go to `File -> Export -> Dawn of War Object Editor model (.sgm)`.  
-    You can uncheck "Convert Textures" to avoid warnings about attempted conversion to `.rsh`.
 5. **Convert textures**  
-    Since the original model uses `.png` textures and the addon can only convert .dds you need to convert them to `.rsh` manually.  
+    ~~Since the original model uses `.png` textures and the addon can only convert .dds you need to convert them to `.rsh` manually.~~  
+    _**NOTE**: Now the Addon can automatically convert almost any texture to `.rsh`, but I'll leave the manual steps here in case you have issues with automatic conversion._  
+
     By default the textures are exported into the folder with the same name as the exported model.
     1. Resize and convert to `.dds`
       The original model uses textures of size 1024x1024, and Object Editor really doesn't like it.  
