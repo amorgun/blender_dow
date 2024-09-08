@@ -508,19 +508,23 @@ class WhmLoader:
         cameras_collection = bpy.data.collections.new('Cameras')
         self.model_root_collection.children.link(cameras_collection)
 
+        coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()
+        rot_180 = mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+        coord_transform_inv = coord_transform.inverted()
+
         num_cams = reader.read_one('<l')
         for _ in range(num_cams):
             cam_name = reader.read_str()
-            x, z, y = reader.read_struct('<3f')
+            pos = reader.read_struct('<3f')
             rot = reader.read_struct('<4f')
             fov, clip_start, clip_end = reader.read_struct('<3f')
             focus_point = reader.read_struct('<3f')
 
-            transform = mathutils.Matrix.LocRotScale(
-                mathutils.Vector([-x, -y, z]),
-                mathutils.Quaternion([rot[1], rot[2], rot[0], -rot[3]]),
+            transform = coord_transform_inv @ mathutils.Matrix.LocRotScale(
+                mathutils.Vector(pos),
+                mathutils.Quaternion([rot[3], *rot[:3]]) @ rot_180,
                 None,
-            )
+            ) @ coord_transform
 
             bone = self.armature.edit_bones.new(cam_name)
             bone.head = (0, 0, 0)
@@ -694,6 +698,11 @@ class WhmLoader:
         # ---< CAMERA >---
 
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
+
+            coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_quaternion()
+            rot_180 = mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+            coord_transform_inv = coord_transform.inverted()
+
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
             for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
@@ -720,7 +729,13 @@ class WhmLoader:
                     key_rot = reader.read_struct('<4f')
                     if cam_name not in self.created_cameras:
                         continue
-                    new_transform = mathutils.Quaternion([key_rot[1], key_rot[2], key_rot[0], -key_rot[3]])
+
+                    new_transform = (
+                        coord_transform_inv
+                        @ mathutils.Quaternion([key_rot[3], *key_rot[:3]])
+                        @ rot_180
+                        @ coord_transform
+                     )
 
                     new_rot = orig_rot.inverted() @ new_transform
                     new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
@@ -1056,7 +1071,7 @@ class WhmLoader:
                         node.image.pack()
 
 
-def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
+def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None, create_cameras: bool = True):
     print('------------------')
 
     for action in bpy.data.actions:
@@ -1077,7 +1092,7 @@ def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_p
 
     with target_path.open('rb') as f:
         reader = ChunkReader(f)
-        loader = WhmLoader(module_root, load_wtp=teamcolor_path is not None)
+        loader = WhmLoader(module_root, load_wtp=teamcolor_path is not None, create_cameras=create_cameras)
         try:
             loader.load(reader)
             if teamcolor_path:

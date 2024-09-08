@@ -132,6 +132,9 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
             bpy.ops.wm.read_homefile(app_template='')
             for mesh in bpy.data.meshes:
                 bpy.data.meshes.remove(mesh)
+            for material in bpy.data.materials:
+                material.user_clear()
+                bpy.data.materials.remove(material)
             for cam in bpy.data.cameras:
                 bpy.data.cameras.remove(cam)
         preferences = context.preferences
