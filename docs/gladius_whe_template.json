@@ -1,0 +1,95 @@
+{
+    "burn_info": {
+      "tool": "https://github.com/amorgun/dow_object_tool",
+      "username": "user",
+      "date": "July 28, 11:06:26 PM"
+    },
+    "selected_ui": {
+      "display_type": "circle",
+      "scale": {"x": 50.0, "z": 50.0},
+      "offset": {"x": 0.0, "z": 0.0},
+      "volume_scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+      "volume_offset": {"x": 0.0, "y": 50.0, "z": 0.0},
+      "matrix": [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+      ]
+    },
+    "events": [],
+    "clauses": [],
+    "conditions": [],
+    "modifiers": [],
+    "motions": [
+      {
+        "name": "idle",
+        "random_motions": [
+          {"motion": "idle0", "weight": 8.0},
+          {"motion": "idle1", "weight": 1.0},
+          {"motion": "idle2", "weight": 1.0}
+        ],
+        "randomize_each_loop": true,
+        "type": "looping",
+        "start_delay": [0.0, 0.0],
+        "loop_delay": [0.0, 0.0],
+        "exit_delay": [0.0, 0.0],
+        "inset": [0.0, 0.0],
+        "transition_out": 0.0,
+        "ignore_exit_delay": false,
+        "ignore_transitions": false
+      },
+      {
+        "name": "idle0",
+        "animations": [
+          "idle0"
+        ],
+        "randomize_each_loop": true,
+        "type": "looping",
+        "start_delay": [0.0, 0.0],
+        "loop_delay": [0.0, 0.0],
+        "exit_delay": [0.0, 0.0],
+        "inset": [0.0, 0.0],
+        "transition_out": 0.0,
+        "ignore_exit_delay": false,
+        "ignore_transitions": false
+      },
+      {
+        "name": "idle1",
+        "animations": [
+          "idle1"
+        ],
+        "randomize_each_loop": true,
+        "type": "looping",
+        "start_delay": [0.0, 0.0],
+        "loop_delay": [0.0, 0.0],
+        "exit_delay": [0.0, 0.0],
+        "inset": [0.0, 0.0],
+        "transition_out": 0.0,
+        "ignore_exit_delay": false,
+        "ignore_transitions": false
+      },
+      {
+        "name": "idle2",
+        "animations": [
+          "idle2"
+        ],
+        "randomize_each_loop": true,
+        "type": "looping",
+        "start_delay": [0.0, 0.0],
+        "loop_delay": [0.0, 0.0],
+        "exit_delay": [0.0, 0.0],
+        "inset": [0.0, 0.0],
+        "transition_out": 0.0,
+        "ignore_exit_delay": false,
+        "ignore_transitions": false
+      }
+    ],
+    "actions": [
+      {
+        "name": "default",
+        "motions": [
+          {"motion": "idle", "compare_type": "none"}
+        ]
+      }
+    ]
+  }
