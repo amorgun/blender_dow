@@ -766,7 +766,7 @@ class Exporter:
                                     else:
                                         weights.append(0)
                                         bones_ids.append(255)
-                                total_weight = sum(weights) or 1
+                                total_weight = sum(weights[:4]) or 1
                                 writer.write_struct('<3f', *[w / total_weight for w in weights[:3]])
                                 writer.write_struct('<4B', *bones_ids)
                         if not mesh.corner_normals:
