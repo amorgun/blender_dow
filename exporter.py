@@ -160,6 +160,7 @@ class Exporter:
             packages_location: pathlib.Path = None,
             default_texture_path: str = '',
             max_texture_size: int = 1024,
+            make_oe_compatable_textures: bool = True,
             context=None,
         ) -> None:
         self.messages = []
@@ -170,6 +171,7 @@ class Exporter:
         self.packages_location = packages_location
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
+        self.make_oe_compatable_textures = make_oe_compatable_textures
         self.bpy_context = context if context is not None else bpy.context
 
         self.armature_obj = None
@@ -399,6 +401,7 @@ class Exporter:
                         'FOLDTXTR': {
                             'version': 1,
                             'DATAHEAD': {'version': 1},
+                            'DATAINFO': {'version': 3},
                             'FOLDIMAG': {
                                 'version': 1,
                                 'DATAATTR': {'version': 2},
@@ -492,6 +495,9 @@ class Exporter:
                 with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
                     with writer.start_chunk('DATAHEAD'):
                         writer.write_struct('<2l', image_type, 1)  # num_images
+                    if self.make_oe_compatable_textures:
+                        with writer.start_chunk('DATAINFO'):
+                            writer.write_struct('<4l', image_type, width, height, 1)  # num_images
                     with writer.start_chunk('FOLDIMAG'):
                         with writer.start_chunk('DATAATTR'):
                             writer.write_struct('<4l', image_format, width, height, num_mips)
@@ -709,6 +715,10 @@ class Exporter:
                     with writer.start_chunk('DATADATA'):
                         writer.write_struct('<4xbL4x', 1, len(mesh.loop_triangles))
                         vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
+
+                        if len(vertex_groups) != 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
+                            self.messages.append(('WARNING', f'Mesh {obj.name} seems to be not weighted to any bones'))
+                            vertex_groups = []
                         if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
                             assert vertex_groups[0].name in self.bone_to_idx, f'Cannot find bone {vertex_groups[0].name} for mesh {obj.name}'
                             single_bone_meshes[obj.name] = self.bone_to_idx[vertex_groups[0].name]

@@ -122,9 +122,14 @@ class WhmLoader:
         return material
 
     def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str):  # Chunk Handler - Internal Texture
-        current_chunk = reader.read_header('DATAHEAD')
-        image_type, num_images = reader.read_struct('<2l')
-        current_chunk = reader.read_header('FOLDIMAG')
+        for current_chunk in reader.iter_chunks():
+            match current_chunk.typeid:
+                case 'DATAHEAD':
+                    image_type, num_images = reader.read_struct('<2l')
+                case 'DATAINFO':
+                    reader.skip(current_chunk.size)
+                case 'FOLDIMAG':
+                    break
         current_chunk = reader.read_header('DATAATTR')
         image_format, width, height, num_mips = reader.read_struct('<4l')
         current_chunk = reader.read_header('DATADATA')
@@ -538,9 +543,6 @@ class WhmLoader:
 
             if not self.create_cameras:
                 continue
-            cam = bpy.data.cameras.new(cam_name)
-            cam.clip_start, cam.clip_end = clip_start, clip_end
-
             empty = bpy.data.objects.new(f'{cam_name}_focus', None)
             cameras_collection.objects.link(empty)
             empty.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
