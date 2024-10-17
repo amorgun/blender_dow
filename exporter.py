@@ -716,7 +716,7 @@ class Exporter:
                         writer.write_struct('<4xbL4x', 1, len(mesh.loop_triangles))
                         vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
 
-                        if len(vertex_groups) != 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
+                        if len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
                             self.messages.append(('WARNING', f'Mesh {obj.name} seems to be not weighted to any bones'))
                             vertex_groups = []
                         if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
