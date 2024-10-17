@@ -209,7 +209,7 @@ class Exporter:
         return contextlib.nullcontext()
 
     def get_material_path(self, mat) -> str:
-        return mat.get('full_path', self.default_texture_path / mat.name)
+        return mat.get('full_path', str(self.default_texture_path / mat.name))
 
     def do_install_requirements(self):
         import subprocess
@@ -648,6 +648,7 @@ class Exporter:
                 data = bone_tree
             return data.setdefault(bone, {})
         
+        # FIXME - just export all non-markers and non-cameras
         if 'Skeleton' in armature.collections:
             bones = armature.collections['Skeleton'].bones
         else:
@@ -765,7 +766,8 @@ class Exporter:
                                     else:
                                         weights.append(0)
                                         bones_ids.append(255)
-                                writer.write_struct('<3f', *weights[:3])
+                                total_weight = sum(weights) or 1
+                                writer.write_struct('<3f', *[w / total_weight for w in weights[:3]])
                                 writer.write_struct('<4B', *bones_ids)
                         if not mesh.corner_normals:
                             if not no_custom_normals_warn:

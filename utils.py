@@ -6,6 +6,7 @@ import sys
 
 import addon_utils
 import bpy
+import mathutils
 
 
 def console_get():
@@ -77,3 +78,27 @@ def flip_image_y(image):
     pixels = list(pixels)
     image.pixels[:] = pixels
     return image
+
+
+def create_camera(cam_name: str, bone, armature, clip_start: float, clip_end: float, fov: float, focus_obj = None):
+    cam = bpy.data.cameras.new(cam_name)
+    cam.clip_start, cam.clip_end = clip_start, clip_end
+
+    cam.dof.use_dof = True
+    cam.dof.focus_object = focus_obj
+    cam.lens_unit = 'FOV'
+    cam.angle = fov
+    cam.passepartout_alpha = 0
+
+    cam_obj = bpy.data.objects.new(cam_name, cam)
+    cam_obj.parent = armature
+    cam_obj.parent_bone = cam_name
+    cam_obj.parent_type = 'BONE'
+    cam_obj.lock_location = [True] * 3
+    cam_obj.lock_rotation = [True] * 3
+    cam_obj.matrix_parent_inverse = mathutils.Matrix.LocRotScale(
+        mathutils.Vector([0, -bone.length, 0]),
+        mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_3x3(),
+        None,
+    )
+    return cam_obj

@@ -108,8 +108,9 @@ class ChunkWriter:
         self.chunk_versions = prev_chunk_version
         self.stream.seek(0, os.SEEK_END)
 
-    def write(self, data: bytes):
-        assert self.curr_typeid is None or self.curr_typeid[:4] == 'DATA', f'Cannot write bytes to {self.curr_typeid}'
+    def write(self, data: bytes, safe: bool = False):
+        if safe:
+            assert self.curr_typeid is None or self.curr_typeid[:4] == 'DATA', f'Cannot write bytes to {self.curr_typeid}'
         self.curr_data_size += len(data)
         return self.stream.write(data)
 
@@ -117,6 +118,7 @@ class ChunkWriter:
         self.write(struct.pack(fmt, *args))
     
     def write_str(self, s: str, encoding: str = 'utf8'):
+        assert s is not None
         data = bytes(s, encoding)
         self.write_struct('<l', len(data))
         self.write(data)

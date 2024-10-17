@@ -50,6 +50,7 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
         var = driver.variables.new()
         driver.type = 'SUM'
         var.targets[0].id = target_id
+        # TODO set var.targets[0] type to armature
         var.targets[0].data_path = target_data_path
         var.targets[0].use_fallback_value = True
         var.targets[0].fallback_value = fallback_value
@@ -544,22 +545,11 @@ class WhmLoader:
             cameras_collection.objects.link(empty)
             empty.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
             empty.empty_display_type = 'SPHERE'
-            cam.dof.use_dof = True
-            cam.dof.focus_object = empty
-            cam.lens_unit = 'FOV'
-            cam.angle = fov
-            cam.passepartout_alpha = 0
-
-            cam_obj = bpy.data.objects.new(cam_name, cam)
-            cameras_collection.objects.link(cam_obj)
-            cam_obj.parent = self.armature_obj
-            cam_obj.parent_bone = cam_name
-            cam_obj.parent_type = 'BONE'
-            cam_obj.matrix_parent_inverse = mathutils.Matrix.LocRotScale(
-                mathutils.Vector([0, -bone.length, 0]),
-                mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_3x3(),
-                None,
+            cam_obj = utils.create_camera(
+                cam_name=cam_name, bone=bone, armature=self.armature_obj,
+                clip_start=clip_start, clip_end=clip_end, fov=fov*2, focus_obj=empty,
             )
+            cameras_collection.objects.link(cam_obj)
             self.created_cameras[cam_name] = cam_obj
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
