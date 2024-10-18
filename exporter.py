@@ -224,7 +224,7 @@ class Exporter:
         if not self.install_requirements:
             return False
         try:
-            utils.install_packages('quicktex', 'Pillow', packages_location=self.packages_location)
+            utils.install_packages('quicktex==0.2.1', 'Pillow', packages_location=self.packages_location)
         except subprocess.CalledProcessError as e:
             self.messages.append(('ERROR', f'Cannot install requirements: {e.stderr}'))
             return False
