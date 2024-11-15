@@ -10,9 +10,8 @@ Blender addon for import and export of Dawn of War models.
 
 ## Installation
 1. Download the latest release from the [Releases page](https://github.com/amorgun/blender_dow/releases/).
-2. In Blender go to `Edit -> Preferences`
-3. Go to the `Addons` tab, click `Install..` and select `blender_dow.zip`
-4. Set up the `Mod folder` option to the path to your mod.
+2. Drag and drop the archive into Blender and click `OK`
+3. Go to `Edit -> Preferences -> Add-ons`, find `Dawn of War Import/Export` there and set up the `Mod folder` option to the path to your mod.
 
 ## Import
 1. Open your mod with [Corsix's Mod Studio](https://modstudio.corsix.org/)
