@@ -706,6 +706,7 @@ class Exporter:
             for obj_orig in bpy.data.objects:
                 if obj_orig.type != 'MESH':
                     continue
+                not_weighted_vertices_warn = False
                 obj = obj_orig.evaluated_get(depsgraph)
                 mesh = obj.data
                 if len(mesh.materials) == 0:
@@ -780,6 +781,9 @@ class Exporter:
                                     else:
                                         weights.append(0)
                                         bones_ids.append(255)
+                                if weights[0] == 0 and not not_weighted_vertices_warn:
+                                    not_weighted_vertices_warn = True
+                                    self.messages.append(('WARNING', f'Some vertices of mesh {obj.name} are not weighted to any bones and may not be displayed properly'))
                                 total_weight = sum(weights[:4]) or 1
                                 writer.write_struct('<3f', *[w / total_weight for w in weights[:3]])
                                 writer.write_struct('<4B', *bones_ids)
