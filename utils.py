@@ -1,10 +1,5 @@
-import importlib
 import math
-import pathlib
-import subprocess
-import sys
 
-import addon_utils
 import bpy
 import mathutils
 
@@ -48,23 +43,6 @@ def print_rot_loc_matrix(intro: str, data):
         loc, rot, _ = data.decompose()
     rot = rot.to_euler()
     print(f'{intro}:\tRX={math.degrees(rot.x):> z6.1f}\tRY={math.degrees(rot.y):> z6.1f}\tRZ={math.degrees(rot.z):> z6.1f}\tX={loc.x: 1.3f}\tY={loc.y: 1.3f}\tZ={loc.z: 1.3f}')
-
-
-def install_packages(*packages: list[str], only_binary: bool = True, packages_location: pathlib.Path, invalidate_caches: bool = True):
-    subprocess.run([sys.executable, '-m', 'ensurepip'], check=True, capture_output=True, encoding='utf8')
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True, encoding='utf8')
-    subprocess.run([sys.executable, '-m', 'pip', 'install', *packages,
-                    *(f'--only-binary={i}' for i in packages if only_binary),
-                    '--target', str(packages_location)],
-                    check=True, capture_output=True, encoding='utf8')
-    if invalidate_caches:
-        importlib.invalidate_caches()
-
-
-def get_addon_location(addon_name: str) -> pathlib.Path:
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == addon_name:
-            return pathlib.Path(mod.__file__).parent
 
 
 def flip_image_y(image):

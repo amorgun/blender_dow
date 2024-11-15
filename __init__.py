@@ -1,28 +1,13 @@
-bl_info = {
-    'name': 'Dawn of War .WHM and .SGM formats',
-    'description': 'Import and export of Dawn of War models',
-    'author': 'amorgun',
-    'license': 'GPL',
-    'version': (0, 14, 'alpha3'),
-    'blender': (4, 1, 0),
-    'doc_url': 'https://github.com/amorgun/blender_dow',
-    'tracker_url': 'https://github.com/amorgun/blender_dow/issues',
-    'support': 'COMMUNITY',
-    'category': 'Import-Export',
-}
-
 import pathlib
 import platform
-import sys
 
 import bpy
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from . import importer, exporter, utils
+from . import importer, exporter
 
 
-ADDON_LOCATION = utils.get_addon_location(bl_info['name'])
-PACKAGES_LOCATION = ADDON_LOCATION / 'site-packages'
+ADDON_LOCATION = pathlib.Path(__file__).parent
 
 
 class AddonPreferences(bpy.types.AddonPreferences):
@@ -223,12 +208,6 @@ class ExportModel:
         default=True,
     )
 
-    install_requirements: bpy.props.BoolProperty(
-        name='Install requirements',
-        description='Automatically install the required packages when they are needed. Requires an internet connection.',
-        default=True,
-    )
-
     max_texture_size: bpy.props.IntProperty(
         name='Max texture size',
         description='Resize exported textures to the given max size.',
@@ -281,8 +260,7 @@ class ExportModel:
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
-                                   install_requirements=self.install_requirements,
-                                   packages_location=PACKAGES_LOCATION,
+                                   install_requirements=False,
                                    max_texture_size=self.max_texture_size,
                                    context=context)
             try:
@@ -355,7 +333,6 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
-    sys.path.append(str(PACKAGES_LOCATION))
 
 
 def unregister():
