@@ -248,7 +248,10 @@ class Exporter:
 
     def write_materials(self, writer: ChunkWriter):
         self.exported_materials = {}
+        mat_users = bpy.data.user_map(subset=bpy.data.materials)
         for mat in bpy.data.materials:
+            if not mat_users[mat]:
+                continue
             self.write_material(writer, mat)
 
     def write_material(self, writer: ChunkWriter, mat) -> bool:
