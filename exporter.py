@@ -1,3 +1,4 @@
+import ast
 import collections
 import contextlib
 import dataclasses
@@ -896,8 +897,9 @@ class Exporter:
                     continue
                 attr = None
                 if fcurve.data_path.endswith(']'):
-                    path, attr = fcurve.data_path.rsplit('[', 1)
-                    attr = attr[1:-2]
+                    py_path = f'x{fcurve.data_path}' if fcurve.data_path.startswith('[') else f'x.{fcurve.data_path}'
+                    attr = ast.parse(py_path, mode='single').body[0].value.slice.value
+                    path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
                     if '__' in attr:
                         prop_group, obj_name = attr.split('__', 1)
                         prop_fcurves[prop_group.lower()].setdefault(obj_name, []).append(fcurve)
@@ -909,7 +911,11 @@ class Exporter:
                             break
                 if not attr:
                     continue
-                anim_obj = anim_root.path_resolve(path) if path else anim_root
+                try:
+                    anim_obj = anim_root.path_resolve(path) if path else anim_root
+                except Exception:
+                    self.messages.append(('ERROR', f'Cannot resolve path {path} in the action {action.name}'))
+                    raise
                 anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
 
             with writer.start_chunk('FOLDANIM', name=action.name):
