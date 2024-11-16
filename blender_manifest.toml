@@ -1,0 +1,24 @@
+schema_version = "1.0.0"
+
+id = "blender_dow"
+version = "0.14.0-alpha4"
+name = "Dawn of War Import/Export"
+tagline = "Import and export of Dawn of War models"
+maintainer = "amorgun"
+type = "add-on"
+
+website = "https://github.com/amorgun/blender_dow"
+tags = ["Import-Export"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+wheels = [
+  "./wheels/click-8.1.7-py3-none-any.whl",
+  "./wheels/pillow-11.0.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+  "./wheels/quicktex-0.2.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+  "./wheels/pillow-11.0.0-cp311-cp311-win_amd64.whl",
+  "./wheels/quicktex-0.2.1-cp311-cp311-win_amd64.whl",
+]
+
+[permissions]
+files = "Add-on expects to have access to filesytem"
