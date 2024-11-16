@@ -210,10 +210,10 @@ class WhmLoader:
                 for i in input_names:
                     links.new(node_tex.outputs[0], node_final.inputs[i])
 
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][0]', fallback_value=0, index=0)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["uv_offset__{material_name}"][1]', fallback_value=0, index=1)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][0]', fallback_value=1, index=0)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["uv_tiling__{material_name}"][1]', fallback_value=1, index=1)
+        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset__", material_name)}"][0]', fallback_value=0, index=0)
+        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset__", material_name)}"][1]', fallback_value=0, index=1)
+        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling__", material_name)}"][0]', fallback_value=1, index=0)
+        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling__", material_name)}"][1]', fallback_value=1, index=1)
         self.created_materials[material_path] = mat
         return mat
 
@@ -884,7 +884,7 @@ class WhmLoader:
         new_mesh.polygons.foreach_set('material_index', matid_array)
 
         obj = bpy.data.objects.new(mesh_name, new_mesh)
-        add_driver(obj, 'color', self.armature_obj, f'["visibility__{mesh_name}"]', fallback_value=1.0, index=3)
+        add_driver(obj, 'color', self.armature_obj, f'["{utils.create_prop_name("visibility__", mesh_name)}"]', fallback_value=1.0, index=3)
         # add_driver(obj, 'hide_viewport', self.armature_obj, f'["force_invisible__{mesh_name}"]', fallback_value=False)  # works weirdly
         obj.parent = self.armature_obj
         self.created_meshes[mesh_name.lower()] = obj
