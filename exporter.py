@@ -205,6 +205,7 @@ class Exporter:
                         bone.matrix_basis = orig_pose[bone]
                 self.write_marks(writer)
                 self.write_anims(writer)
+        self.messages.append(('INFO', f'Model exported successfully'))
 
     def start_chunk(self, writer: ChunkWriter, format: ExportFormat, *args, **kwargs):
         if format == self.format:
