@@ -737,7 +737,7 @@ class Exporter:
                         exported_vertex_groups = {g.name for g in vertex_groups}
                         extended_vertices: list[VertexInfo] = []
                         extended_polygons = []
-                        seen_uvs = {}
+                        seen_data = {}
 
                         if len(mesh.uv_layers) != 1:
                             self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
@@ -746,11 +746,13 @@ class Exporter:
                             for loop_idx in poly.loops:
                                 orig_vertex_idx = mesh.loops[loop_idx].vertex_index
                                 uv = mesh.uv_layers[0].uv[loop_idx].vector.copy().freeze()
-                                seen_vertex_uvs = seen_uvs.setdefault(orig_vertex_idx, {})
-                                vertex_idx = seen_vertex_uvs.get(uv)
+                                vertex_normal = mesh.corner_normals[loop_idx].vector.copy().freeze()
+                                vertex_key = uv, vertex_normal
+                                seen_vertex_data = seen_data.setdefault(orig_vertex_idx, {})
+                                vertex_idx = seen_vertex_data.get(vertex_key)
                                 if vertex_idx is None:
                                     vertex_idx = len(extended_vertices)
-                                    seen_vertex_uvs[uv] = vertex_idx
+                                    seen_vertex_data[vertex_key] = vertex_idx
                                     vertex = mesh.vertices[orig_vertex_idx]
                                     vertex_info = VertexInfo(
                                         position=obj.matrix_world @ vertex.co,
