@@ -417,7 +417,7 @@ class Exporter:
                 image = images.get(key)
                 if not image:
                     continue
-                texture_declared_path = f'{declared_path}{path_suffix}'  # used fow locating .wtp
+                texture_declared_path = f'{declared_path}{path_suffix}'  # used for locating .wtp
                 texture_declared_paths[key] = texture_declared_path
 
                 texture_data = None
