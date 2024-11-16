@@ -157,8 +157,6 @@ class Exporter:
             paths: FileDispatcher,
             format: ExportFormat = ExportFormat.WHM,
             convert_textures: bool = True,
-            install_requirements: bool = True,
-            packages_location: pathlib.Path = None,
             default_texture_path: str = '',
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
@@ -168,8 +166,6 @@ class Exporter:
         self.paths = paths
         self.format = format
         self.convert_textures = convert_textures
-        self.install_requirements = install_requirements
-        self.packages_location = packages_location
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
@@ -214,29 +210,6 @@ class Exporter:
 
     def get_material_path(self, mat) -> str:
         return mat.get('full_path', str(self.default_texture_path / mat.name))
-
-    def do_install_requirements(self):
-        import subprocess
-
-        try:
-            import quicktex
-            return True
-        except ImportError:
-            pass
-        if not self.install_requirements:
-            return False
-        try:
-            utils.install_packages('quicktex==0.2.1', 'Pillow', packages_location=self.packages_location)
-        except subprocess.CalledProcessError as e:
-            self.messages.append(('ERROR', f'Cannot install requirements: {e.stderr}'))
-            return False
-        try:
-            import quicktex
-            self.messages.append(('DEBUG', f'Successfully installed requirements'))
-            return True
-        except ImportError:
-            self.messages.append(('ERROR', f'Cannot import requirements'))
-            return False
 
     def write_relic_chunky(self, writer: ChunkWriter):
         writer.write_struct('<12s3l', b'Relic Chunky', 1706509, 1, 1)
@@ -460,43 +433,34 @@ class Exporter:
                         self.messages.append(('WARNING', f'Error while converting {image.name}: {e!r}'))
                         return False
                 texture_stream = io.BytesIO(texture_data)
-                requirements_installed = self.do_install_requirements()
-                if not requirements_installed:
-                    try:
-                        is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
-                    except Exception as e:
-                        self.messages.append(('WARNING', f'Error while converting {image.name}: {e!r}'))
-                        return False
-                    if not is_dds:
-                        self.messages.append(('WARNING', f'Can only convert .dds to .rsh ({image.name})'))
-                        return False
-                else:
-                    from PIL import Image
-                    import quicktex.dds
-                    import quicktex.s3tc.bc1
-                    import quicktex.s3tc.bc3
 
-                    texture_stream.seek(0)
-                    pil_image = Image.open(texture_stream)
-                    pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
-                    level = 10
-                    color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
-                    mode = color_mode.ThreeColor
-                    bc1_encoder = quicktex.s3tc.bc1.BC1Encoder(level, mode)
-                    bc3_encoder = quicktex.s3tc.bc3.BC3Encoder(level)
-                    if 'A' not in pil_image.mode:
-                        has_alpha = False
-                    else:
-                        alpha_hist = pil_image.getchannel('A').histogram()
-                        has_alpha = any([a > 0 for a in alpha_hist[:-1]])
-                        # TODO test for 1-bit alpha
-                    tmp_dds_path = temp_dir / key
-                    if has_alpha:
-                        quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(tmp_dds_path)
-                    else:
-                        quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(tmp_dds_path)
-                    texture_stream = tmp_dds_path.open('rb')
-                    is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+                from PIL import Image
+                import quicktex.dds
+                import quicktex.s3tc.bc1
+                import quicktex.s3tc.bc3
+
+                texture_stream.seek(0)
+                pil_image = Image.open(texture_stream)
+                pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
+                level = 10
+                color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
+                mode = color_mode.ThreeColor
+                bc1_encoder = quicktex.s3tc.bc1.BC1Encoder(level, mode)
+                bc3_encoder = quicktex.s3tc.bc3.BC3Encoder(level)
+                if 'A' not in pil_image.mode:
+                    has_alpha = False
+                else:
+                    alpha_hist = pil_image.getchannel('A').histogram()
+                    has_alpha = any([a > 0 for a in alpha_hist[:-1]])
+                    # TODO test for 1-bit alpha
+                tmp_dds_path = temp_dir / key
+                if has_alpha:
+                    quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(tmp_dds_path)
+                else:
+                    quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(tmp_dds_path)
+                texture_stream = tmp_dds_path.open('rb')
+                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+
                 with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
                     with writer.start_chunk('DATAHEAD'):
                         writer.write_struct('<2l', image_type, 1)  # num_images
@@ -1057,7 +1021,7 @@ def export_whm(path: str):
         fmt = ExportFormat.WHM
         writer = ChunkWriter(f, CHUNK_VERSIONS[fmt])
         paths = FileDispatcher(pathlib.Path(path).with_suffix(''), layout=FileDispatcher.Layout.FLAT)
-        exporter = Exporter(paths, format=fmt, packages_location=pathlib.Path(__file__).parent / 'site-packages', max_texture_size=768, install_requirements=True)
+        exporter = Exporter(paths, format=fmt, max_texture_size=768)
         try:
             exporter.export(writer, object_name=pathlib.Path(bpy.data.filepath).stem, meta='amorgun')
             paths.dump_info()

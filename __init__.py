@@ -260,7 +260,6 @@ class ExportModel:
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
-                                   install_requirements=False,
                                    max_texture_size=self.max_texture_size,
                                    context=context)
             try:
