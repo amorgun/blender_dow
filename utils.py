@@ -1,3 +1,4 @@
+import hashlib
 import math
 
 import bpy
@@ -56,6 +57,17 @@ def flip_image_y(image):
     pixels = list(pixels)
     image.pixels[:] = pixels
     return image
+
+
+def get_hash(s: str) -> str:
+    return hashlib.md5(bytes(s, 'utf8')).hexdigest()
+
+
+def create_prop_name(prefix: str, hashable: str, max_len: int = 63) -> str:
+    res = f'{prefix}{hashable}'
+    if len(res) <= max_len:
+        return res
+    return f'''{prefix}{get_hash(hashable)}'''
 
 
 def create_camera(cam_name: str, bone, armature, clip_start: float, clip_end: float, fov: float, focus_obj = None):

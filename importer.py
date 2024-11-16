@@ -630,7 +630,7 @@ class WhmLoader:
                 keys_vis = reader.read_one('<l') - 1  # -- Read Number Of Visibility Keys
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 force_invisible = reader.read_one('<f') == 0  #-- Read ForceInvisible Property
-                force_invisible_prop_name = f'force_invisible__{obj_name}'
+                force_invisible_prop_name = utils.create_prop_name('force_invisible__', obj_name)
                 is_invisible = False
                 if force_invisible:
                     if obj_name not in visible_meshes:
@@ -639,7 +639,7 @@ class WhmLoader:
                     visible_meshes.add(obj_name)
                 setup_property(self.armature_obj, force_invisible_prop_name, is_invisible, description='Force the mesh to be invisible in the current animation')  # -- Set ForceInvisible Property. Usage: https://dawnofwar.org.ru/publ/27-1-0-177
                 self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
-                prop_name = f'visibility__{obj_name}'
+                prop_name = utils.create_prop_name('visibility__', obj_name)
                 # if force_invisible == 0:
                 # setup_property(self.armature_obj, prop_name, force_invisible, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
                 # self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
@@ -660,10 +660,10 @@ class WhmLoader:
                 material = self.created_materials.get(obj_name)
                 if material is not None:
                     if tex_anim_type in (1, 2):
-                        prop_name = f'uv_offset__{material.name}'
+                        prop_name = utils.create_prop_name('uv_offset__', material.name)
                         setup_property(self.armature_obj, prop_name, [0., 0.], default=[0., 0.], description='Hack for animatiing UV offset')
                     else:
-                        prop_name = f'uv_tiling__{material.name}'
+                        prop_name = utils.create_prop_name('uv_tiling__', material.name)
                         setup_property(self.armature_obj, prop_name, [1., 1.], default=[1., 1.], description='Hack for animatiing UV tiling')
                 else:
                     self.messages.append(('WARNING', f'Cannot find material {obj_name}'))

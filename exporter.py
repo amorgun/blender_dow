@@ -1004,7 +1004,7 @@ class Exporter:
                         with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mesh_name):
                             writer.write_struct('<l', 2)  # mode
                             writer.write_struct('<8x')
-                            vis_fcurves = prop_fcurves['visibility'].get(mesh_name, [])
+                            vis_fcurves = prop_fcurves['visibility'].get(mesh_name, []) or prop_fcurves['visibility'].get(utils.get_hash(mesh_name), [])
                             if vis_fcurves:
                                 fcurve = vis_fcurves[0]
                                 keypoints = fcurve.keyframe_points
@@ -1014,18 +1014,20 @@ class Exporter:
                                 keypoints = []
                             writer.write_struct('<l', len(keypoints) + 1)
                             writer.write_struct('<4x')
-                            force_invisible_fcurves = prop_fcurves['force_invisible'].get(mesh_name, [])
+                            force_invisible_fcurves = prop_fcurves['force_invisible'].get(mesh_name, []) or prop_fcurves['force_invisible'].get(utils.get_hash(mesh_name), [])
                             force_invisible = force_invisible_fcurves[0].keyframe_points[0].co[1] if force_invisible_fcurves else 0
                             writer.write_struct('<f', not force_invisible)
                             for point in keypoints:
                                 frame, val = point.co
                                 writer.write_struct('<2f', frame / max(frame_end, 1), val)
 
-                    for group in ['uv_offset', 'uv_tiling']:
-                         for tex_short_name, fcurves in prop_fcurves[group].items():
-                             mat = bpy.data.materials[tex_short_name]
-                             mat_path = self.get_material_path(mat)
-                             for fcurve in fcurves:
+                    for mat in bpy.data.materials:
+                        if mat.name not in self.exported_materials:
+                            continue
+                        for group in ['uv_offset', 'uv_tiling']:
+                            fcurves = prop_fcurves[group].get(mat.name, []) or prop_fcurves[group].get(utils.get_hash(mat.name), [])
+                            mat_path = self.get_material_path(mat)
+                            for fcurve in fcurves:
                                 if self.format is ExportFormat.WHM:
                                     writer.write_str(mat_path)
                                 with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mat_path):
