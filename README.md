@@ -38,7 +38,7 @@ It means DoW doesn't like the texture size. Make sure texture dimensions are bot
 Also try changing the `Max texture size` option during the Export dialog.
 
 ## Troubleshooting
-Make sure you are using Blender 4.1 or newer.  
+Make sure you are using Blender 4.2 or newer.  
 The addon reports some messages that you can find in [Info Editor](https://docs.blender.org/manual/en/latest/editors/info_editor.html).  
 In case it doesn't help feel free to [file an issue](https://github.com/amorgun/blender_dow/issues).
 
