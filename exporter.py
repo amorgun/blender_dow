@@ -876,7 +876,7 @@ class Exporter:
                     path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
                     if utils.PROP_SEP in attr:
                         prop_group, obj_name = attr.split(utils.PROP_SEP, 1)
-                        prop_fcurves[prop_group.lower()].setdefault(obj_name, []).append(fcurve)
+                        prop_fcurves[prop_group.lower()].setdefault(obj_name.lower(), []).append(fcurve)
                 else:
                     for suffix in ['.rotation_quaternion', '.location']:
                         if fcurve.data_path.endswith(suffix):
@@ -891,6 +891,11 @@ class Exporter:
                     self.messages.append(('ERROR', f'Cannot resolve path "{path}" in the action "{action.name}"'))
                     raise
                 anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
+
+            def get_prop_fcurves(prop: str, obj_name: str) -> list:
+                prop_data = prop_fcurves[prop]
+                obj_name = obj_name.lower()
+                return prop_data.get(obj_name, []) or prop_data.get(utils.get_hash(obj_name), [])
 
             with writer.start_chunk('FOLDANIM', name=action.name):
                 with self.start_chunk(writer, ExportFormat.WHM, 'DATADATA', name=action.name), \
@@ -977,7 +982,7 @@ class Exporter:
                         with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mesh_name):
                             writer.write_struct('<l', 2)  # mode
                             writer.write_struct('<8x')
-                            vis_fcurves = prop_fcurves['visibility'].get(mesh_name, []) or prop_fcurves['visibility'].get(utils.get_hash(mesh_name), [])
+                            vis_fcurves = get_prop_fcurves('visibility', mesh_name)
                             if vis_fcurves:
                                 fcurve = vis_fcurves[0]
                                 keypoints = fcurve.keyframe_points
@@ -987,7 +992,7 @@ class Exporter:
                                 keypoints = []
                             writer.write_struct('<l', len(keypoints) + 1)
                             writer.write_struct('<4x')
-                            force_invisible_fcurves = prop_fcurves['force_invisible'].get(mesh_name, []) or prop_fcurves['force_invisible'].get(utils.get_hash(mesh_name), [])
+                            force_invisible_fcurves = get_prop_fcurves('force_invisible', mesh_name)
                             force_invisible = 0
                             if force_invisible_fcurves:
                                 keyframes = force_invisible_fcurves[0].keyframe_points
@@ -1003,7 +1008,7 @@ class Exporter:
                         if mat.name not in self.exported_materials:
                             continue
                         for group in ['uv_offset', 'uv_tiling']:
-                            fcurves = prop_fcurves[group].get(mat.name, []) or prop_fcurves[group].get(utils.get_hash(mat.name), [])
+                            fcurves = get_prop_fcurves(group, mat.name)
                             mat_path = self.get_material_path(mat)
                             for fcurve in fcurves:
                                 if self.format is ExportFormat.WHM:

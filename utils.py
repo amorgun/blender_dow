@@ -106,6 +106,7 @@ PROP_ARGS = {
 
 
 def create_prop_name(prefix: str, hashable: str, max_len: int = 63) -> str:
+    hashable = hashable.lower()
     res = f'{prefix}{PROP_SEP}{hashable}'
     if len(res) <= max_len:
         return res
