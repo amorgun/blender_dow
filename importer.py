@@ -33,14 +33,6 @@ class SkinVertice:
     bone: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
 
 
-def setup_property(obj, prop_name: str, value=None, **kwargs):
-    if value is None and obj.get(prop_name):
-        return
-    obj[prop_name] = value
-    id_props = obj.id_properties_ui(prop_name)
-    id_props.update(**kwargs)
-
-
 def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, fallback_value, index: int = -1):
     if index != -1:
         drivers = [obj.driver_add(obj_prop_path, index).driver]
@@ -151,7 +143,7 @@ class WhmLoader:
             return self.created_materials[material_path]
         material_name = pathlib.Path(material_path).name
         mat = bpy.data.materials.new(name=material_name)
-        setup_property(mat, 'full_path', material_path, subtype='FILE_PATH', description='Path to export this material')
+        utils.setup_property(mat, 'full_path', material_path)
         mat.blend_method = 'CLIP'
         mat.show_transparent_back = False
         mat.use_nodes = True
@@ -611,10 +603,9 @@ class WhmLoader:
             # if stale == 0 then setUserProp bone "Stale" "Yes"											-- Set Stale Property
             if stale:
                 # bone.dow_settings.stale = stale
-                setup_property(bone, 'Stale', True, description='Apply it to each bone you want to disable in an animation.')
-                # print(f'Stale {animation_name} {bone_name}')
+                utils.setup_property(bone, 'stale', True)
                 # self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].dow_settings.stale', frame=0)
-                self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"]["Stale"]', frame=0, group=bone_name)
+                self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"]["stale"]', frame=0, group=bone_name)
 
         # ---< MESHES & TEXTURES >---
 
@@ -637,7 +628,7 @@ class WhmLoader:
                         is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
-                setup_property(self.armature_obj, force_invisible_prop_name, is_invisible, description='Force the mesh to be invisible in the current animation')  # -- Set ForceInvisible Property. Usage: https://dawnofwar.org.ru/publ/27-1-0-177
+                utils.setup_property(self.armature_obj, force_invisible_prop_name, is_invisible)  # -- Set ForceInvisible Property
                 self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
                 prop_name = utils.create_prop_name('visibility__', obj_name)
                 # if force_invisible == 0:
@@ -645,7 +636,7 @@ class WhmLoader:
                 # self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
 
                 if keys_vis:
-                    setup_property(self.armature_obj, prop_name, 1.0, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
+                    utils.setup_property(self.armature_obj, prop_name, 1.0)
                     self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
                 
                 for j in range(keys_vis):  # -- Read Visibility Keys
@@ -661,10 +652,10 @@ class WhmLoader:
                 if material is not None:
                     if tex_anim_type in (1, 2):
                         prop_name = utils.create_prop_name('uv_offset__', material.name)
-                        setup_property(self.armature_obj, prop_name, [0., 0.], default=[0., 0.], description='Hack for animatiing UV offset')
+                        utils.setup_property(self.armature_obj, prop_name, [0., 0.])
                     else:
                         prop_name = utils.create_prop_name('uv_tiling__', material.name)
-                        setup_property(self.armature_obj, prop_name, [1., 1.], default=[1., 1.], description='Hack for animatiing UV tiling')
+                        utils.setup_property(self.armature_obj, prop_name, [1., 1.])
                 else:
                     self.messages.append(('WARNING', f'Cannot find material {obj_name}'))
                 for j in range(keys_tex):  # -- Read Texture Keys
@@ -755,10 +746,8 @@ class WhmLoader:
 
         #---< SKIN BONES >---
 
-        skin_bone_array = []  # -- array to store skin bone names
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
-            skin_bone_array.append(bone_name)
             bone_idx = reader.read_one('<l')
             assert bone_array[bone_idx].name == bone_name
 
@@ -900,9 +889,6 @@ class WhmLoader:
                 if vertex_group is None:
                     vertex_group = vertex_groups[bone_name] = obj.vertex_groups.new(name=bone_name)
                 vertex_group.add([vert_idx], bone_weight, 'REPLACE')
-        if skin_bone_array == [mesh_name]:
-            setup_property(new_mesh, 'ForceSkinning', True, description='Force a linked mesh to be treated as 100% skinned in the exporter')  # -- Mesh Is Weighted To Itself -> Force Skinning (https://dow.finaldeath.co.uk/rdnwiki/www.relic.com/rdn/wiki/ModTools/ToolsReleaseNotes.html)
-            # print(f'ForceSkinning {mesh_name}')
 
         #---< UV MAP >---
 
@@ -966,7 +952,7 @@ class WhmLoader:
                                     for current_chunk in xreffile.iter_chunks():  # -- Read FOLDMSLC Chunks
                                         if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
                                             mesh_obj = self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
-                                            setup_property(mesh_obj, 'xref_source', str(mesh_path), description='Reference this mesh from an external file instead of this model')
+                                            utils.setup_property(mesh_obj, 'xref_source', str(mesh_path))
                                         else:
                                             xreffile.skip(current_chunk.size)
                                         if current_chunk.typeid == 'DATABVOL':
@@ -1006,7 +992,7 @@ class WhmLoader:
                     internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
                 case "FOLDSHDR":  # FOLDSHDR - Internal Material
                     mat = self.CH_FOLDSHDR(reader, current_chunk.name, internal_textures)
-                    setup_property(mat, 'internal', True, description='Do not export this material to a separate file and keep it inside the model file')
+                    utils.setup_property(mat, 'internal', True)
                 case "DATASKEL": self.CH_DATASKEL(reader, xref=False)  # DATASKEL - Skeleton Data
                 case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
                 case "DATAMARK": self.CH_DATAMARK(reader)  # DATAMARK - Marker Data

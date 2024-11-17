@@ -209,7 +209,10 @@ class Exporter:
         return contextlib.nullcontext()
 
     def get_material_path(self, mat) -> str:
-        return mat.get('full_path', str(self.default_texture_path / mat.name))
+        user_path = mat.get('full_path', None)
+        if user_path and user_path.strip():
+            return user_path
+        return str(self.default_texture_path / mat.name)
 
     def write_relic_chunky(self, writer: ChunkWriter):
         writer.write_struct('<12s3l', b'Relic Chunky', 1706509, 1, 1)
@@ -885,7 +888,7 @@ class Exporter:
                 try:
                     anim_obj = anim_root.path_resolve(path) if path else anim_root
                 except Exception:
-                    self.messages.append(('ERROR', f'Cannot resolve path {path} in the action {action.name}'))
+                    self.messages.append(('ERROR', f'Cannot resolve path "{path}" in the action "{action.name}"'))
                     raise
                 anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
 
@@ -954,7 +957,13 @@ class Exporter:
                                 prev_rot = rot
                                 writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
 
-                            stale_flag = int(bone_obj not in anim_sections['stale'])
+                            stale_flag = 1
+                            if bone_obj in anim_sections['stale']:
+                                keyframes = anim_sections['stale'][bone_obj][0].keyframe_points
+                                if len(keyframes) > 1:
+                                    self.messages.append(('WARNING', f'''Found {len(keyframes)} values for "stale" property of bone "{bone_obj.name}" in the action "{action.name}". Only the first one is used.'''))
+                                if keyframes[0].co[1]:
+                                    stale_flag = 0
                             writer.write_struct('<b', stale_flag)
 
                     mesh_fcurves = prop_fcurves['visibility'].keys() | prop_fcurves['force_invisible'].keys()
@@ -979,7 +988,12 @@ class Exporter:
                             writer.write_struct('<l', len(keypoints) + 1)
                             writer.write_struct('<4x')
                             force_invisible_fcurves = prop_fcurves['force_invisible'].get(mesh_name, []) or prop_fcurves['force_invisible'].get(utils.get_hash(mesh_name), [])
-                            force_invisible = force_invisible_fcurves[0].keyframe_points[0].co[1] if force_invisible_fcurves else 0
+                            force_invisible = 0
+                            if force_invisible_fcurves:
+                                keyframes = force_invisible_fcurves[0].keyframe_points
+                                if len(keyframes) > 1:
+                                    self.messages.append(('WARNING', f'''Found {len(keyframes)} values for "force_invisible" property of mesh "{mesh_name}" in the action "{action.name}". Only the first one is used.'''))
+                                force_invisible = keyframes[0].co[1]
                             writer.write_struct('<f', not force_invisible)
                             for point in keypoints:
                                 frame, val = point.co

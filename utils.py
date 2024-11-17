@@ -70,6 +70,54 @@ def create_prop_name(prefix: str, hashable: str, max_len: int = 63) -> str:
     return f'''{prefix}{get_hash(hashable)}'''
 
 
+PROP_ARGS = {
+    (bpy.types.Material, 'full_path'): {
+        'default': '',
+        'subtype': 'FILE_PATH',
+        'description': 'Path to export this material',
+    },
+    (bpy.types.Material, 'internal'): {
+        'default': False,
+        'description': 'Do not export this material to a separate file and keep it inside the model file',
+    },
+    (bpy.types.PoseBone, 'stale'): {
+        'default': False,
+        'description': 'Apply it to each bone you want to disable in an animation.',
+    },
+    (bpy.types.Object, 'force_invisible'): {
+        'default': False,
+        'description': 'Force the mesh to be invisible in the current animation',  # Usage: https://dawnofwar.org.ru/publ/27-1-0-177
+    },
+    (bpy.types.Object, 'visibility'): {
+        'default': 1.0,
+        'min': 0,
+        'max': 1,
+        'description': 'Hack for animatiing mesh visibility',
+    },
+    (bpy.types.Object, 'uv_offset'): {
+        'default': [0., 0.],
+        'description': 'Hack for animatiing UV offset',
+    },
+    (bpy.types.Object, 'uv_tiling'): {
+        'default': [1., 1.],
+        'description': 'Hack for animatiing UV tiling',
+    },
+    (bpy.types.Object, 'xref_source'): {
+        'default': '',
+        'description': 'Reference this mesh from an external file instead of this model',
+    },
+}
+
+
+def setup_property(obj, prop_name: str, value=None, **kwargs):
+    if value is None and obj.get(prop_name):
+        return
+    obj[prop_name] = value
+    id_props = obj.id_properties_ui(prop_name)
+    prop_pref = prop_name.split('__', 1)[0]
+    id_props.update(**PROP_ARGS[type(obj), prop_pref])
+
+
 def create_camera(cam_name: str, bone, armature, clip_start: float, clip_end: float, fov: float, focus_obj = None):
     cam = bpy.data.cameras.new(cam_name)
     cam.clip_start, cam.clip_end = clip_start, clip_end
