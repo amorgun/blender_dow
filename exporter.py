@@ -874,8 +874,8 @@ class Exporter:
                     py_path = f'x{fcurve.data_path}' if fcurve.data_path.startswith('[') else f'x.{fcurve.data_path}'
                     attr = ast.parse(py_path, mode='single').body[0].value.slice.value
                     path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
-                    if '__' in attr:
-                        prop_group, obj_name = attr.split('__', 1)
+                    if utils.PROP_SEP in attr:
+                        prop_group, obj_name = attr.split(utils.PROP_SEP, 1)
                         prop_fcurves[prop_group.lower()].setdefault(obj_name, []).append(fcurve)
                 else:
                     for suffix in ['.rotation_quaternion', '.location']:

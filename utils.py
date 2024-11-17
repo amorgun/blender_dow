@@ -1,3 +1,4 @@
+import enum
 import hashlib
 import math
 
@@ -63,22 +64,17 @@ def get_hash(s: str) -> str:
     return hashlib.md5(bytes(s, 'utf8')).hexdigest()
 
 
-def create_prop_name(prefix: str, hashable: str, max_len: int = 63) -> str:
-    res = f'{prefix}{hashable}'
-    if len(res) <= max_len:
-        return res
-    return f'''{prefix}{get_hash(hashable)}'''
-
+PROP_SEP = '__'
 
 PROP_ARGS = {
     (bpy.types.Material, 'full_path'): {
         'default': '',
         'subtype': 'FILE_PATH',
-        'description': 'Path to export this material',
+        'description': 'Path to where the game will look for this material. Useful for reusing the same material between multiple models',
     },
     (bpy.types.Material, 'internal'): {
         'default': False,
-        'description': 'Do not export this material to a separate file and keep it inside the model file',
+        'description': 'Do not export this material into a separate file and keep it inside the model file',
     },
     (bpy.types.PoseBone, 'stale'): {
         'default': False,
@@ -86,36 +82,63 @@ PROP_ARGS = {
     },
     (bpy.types.Object, 'force_invisible'): {
         'default': False,
-        'description': 'Force the mesh to be invisible in the current animation',  # Usage: https://dawnofwar.org.ru/publ/27-1-0-177
+        'description': 'Force the mesh to be invisible in the current animation. Used for creating vis_ animations to conditionally display meshes, e.g. weapon upgrades and random heads',  # Usage: https://dawnofwar.org.ru/publ/27-1-0-177
     },
     (bpy.types.Object, 'visibility'): {
         'default': 1.0,
         'min': 0,
         'max': 1,
-        'description': 'Hack for animatiing mesh visibility',
-    },
-    (bpy.types.Object, 'uv_offset'): {
-        'default': [0., 0.],
-        'description': 'Hack for animatiing UV offset',
-    },
-    (bpy.types.Object, 'uv_tiling'): {
-        'default': [1., 1.],
-        'description': 'Hack for animatiing UV tiling',
+        'description': 'Used for changing the mesh visibility during an animation',
     },
     (bpy.types.Object, 'xref_source'): {
         'default': '',
-        'description': 'Reference this mesh from an external file instead of this model',
+        'description': "If set don't export the mesh data and instead reference it from the specified models",
+    },
+    (bpy.types.Object, 'uv_offset'): {
+        'default': [0., 0.],
+        'description': 'Used for animating moving textures, e.g. tank tracks and chainsword teeth',
+    },
+    (bpy.types.Object, 'uv_tiling'): {
+        'default': [1., 1.],
+        'description': "Used for animating UV tiling of the material. I haven't seen any examples of it in the real models",
     },
 }
+
+
+def create_prop_name(prefix: str, hashable: str, max_len: int = 63) -> str:
+    res = f'{prefix}{PROP_SEP}{hashable}'
+    if len(res) <= max_len:
+        return res
+    return f'''{prefix}{PROP_SEP}{get_hash(hashable)}'''
 
 
 def setup_property(obj, prop_name: str, value=None, **kwargs):
     if value is None and obj.get(prop_name):
         return
+    prop_prefix = prop_name.split(PROP_SEP, 1)[0]
+    args = PROP_ARGS[type(obj), prop_prefix]
+    if value is None:
+        value = args.get('default', value)
     obj[prop_name] = value
     id_props = obj.id_properties_ui(prop_name)
-    prop_pref = prop_name.split('__', 1)[0]
-    id_props.update(**PROP_ARGS[type(obj), prop_pref])
+    for k, v in args.items():
+        print(f'{k}: {v}')
+        id_props.update(**{k: v})
+
+
+def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, fallback_value, index: int = -1):
+    if index != -1:
+        drivers = [obj.driver_add(obj_prop_path, index).driver]
+    else:
+        drivers = [d.driver for d in obj.driver_add(obj_prop_path, index)]
+    for driver in drivers:
+        var = driver.variables.new()
+        driver.type = 'SUM'
+        var.targets[0].id = target_id
+        # TODO set var.targets[0] type to armature
+        var.targets[0].data_path = target_data_path
+        var.targets[0].use_fallback_value = True
+        var.targets[0].fallback_value = fallback_value
 
 
 def create_camera(cam_name: str, bone, armature, clip_start: float, clip_end: float, fov: float, focus_obj = None):

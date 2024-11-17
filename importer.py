@@ -33,21 +33,6 @@ class SkinVertice:
     bone: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
 
 
-def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, fallback_value, index: int = -1):
-    if index != -1:
-        drivers = [obj.driver_add(obj_prop_path, index).driver]
-    else:
-        drivers = [d.driver for d in obj.driver_add(obj_prop_path, index)]
-    for driver in drivers:
-        var = driver.variables.new()
-        driver.type = 'SUM'
-        var.targets[0].id = target_id
-        # TODO set var.targets[0] type to armature
-        var.targets[0].data_path = target_data_path
-        var.targets[0].use_fallback_value = True
-        var.targets[0].fallback_value = fallback_value
-
-
 class WhmLoader:
     TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
@@ -210,10 +195,10 @@ class WhmLoader:
                 for i in input_names:
                     links.new(node_tex.outputs[0], node_final.inputs[i])
 
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset__", material_name)}"][0]', fallback_value=0, index=0)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset__", material_name)}"][1]', fallback_value=0, index=1)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling__", material_name)}"][0]', fallback_value=1, index=0)
-        add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling__", material_name)}"][1]', fallback_value=1, index=1)
+        utils.add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset", material_name)}"][0]', fallback_value=0, index=0)
+        utils.add_driver(mat.node_tree, 'nodes["Mapping"].inputs[1].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_offset", material_name)}"][1]', fallback_value=0, index=1)
+        utils.add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling", material_name)}"][0]', fallback_value=1, index=0)
+        utils.add_driver(mat.node_tree, 'nodes["Mapping"].inputs[3].default_value', self.armature_obj, f'["{utils.create_prop_name("uv_tiling", material_name)}"][1]', fallback_value=1, index=1)
         self.created_materials[material_path] = mat
         return mat
 
@@ -629,7 +614,7 @@ class WhmLoader:
                 keys_vis = reader.read_one('<l') - 1  # -- Read Number Of Visibility Keys
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 force_invisible = reader.read_one('<f') == 0  #-- Read ForceInvisible Property
-                force_invisible_prop_name = utils.create_prop_name('force_invisible__', obj_name)
+                force_invisible_prop_name = utils.create_prop_name('force_invisible', obj_name)
                 is_invisible = False
                 if force_invisible:
                     if obj_name not in visible_meshes:
@@ -638,7 +623,7 @@ class WhmLoader:
                     visible_meshes.add(obj_name)
                 utils.setup_property(self.armature_obj, force_invisible_prop_name, is_invisible)  # -- Set ForceInvisible Property
                 self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
-                prop_name = utils.create_prop_name('visibility__', obj_name)
+                prop_name = utils.create_prop_name('visibility', obj_name)
                 # if force_invisible == 0:
                 # setup_property(self.armature_obj, prop_name, force_invisible, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
                 # self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
@@ -659,10 +644,10 @@ class WhmLoader:
                 material = self.created_materials.get(obj_name)
                 if material is not None:
                     if tex_anim_type in (1, 2):
-                        prop_name = utils.create_prop_name('uv_offset__', material.name)
+                        prop_name = utils.create_prop_name('uv_offset', material.name)
                         utils.setup_property(self.armature_obj, prop_name, [0., 0.])
                     else:
-                        prop_name = utils.create_prop_name('uv_tiling__', material.name)
+                        prop_name = utils.create_prop_name('uv_tiling', material.name)
                         utils.setup_property(self.armature_obj, prop_name, [1., 1.])
                 else:
                     self.messages.append(('WARNING', f'Cannot find material {obj_name}'))
@@ -881,7 +866,7 @@ class WhmLoader:
         new_mesh.polygons.foreach_set('material_index', matid_array)
 
         obj = bpy.data.objects.new(mesh_name, new_mesh)
-        add_driver(obj, 'color', self.armature_obj, f'["{utils.create_prop_name("visibility__", mesh_name)}"]', fallback_value=1.0, index=3)
+        utils.add_driver(obj, 'color', self.armature_obj, f'["{utils.create_prop_name("visibility", mesh_name)}"]', fallback_value=1.0, index=3)
         # add_driver(obj, 'hide_viewport', self.armature_obj, f'["force_invisible__{mesh_name}"]', fallback_value=False)  # works weirdly
         obj.parent = self.armature_obj
         self.created_meshes[mesh_name.lower()] = obj
@@ -1015,7 +1000,7 @@ class WhmLoader:
                 bone.matrix_basis = mathutils.Matrix()
         self.armature_obj.hide_set(True)
         for k, v in self.armature_obj.items():
-            if k.startswith('visibility_'):
+            if k.startswith(f'visibility{utils.PROP_SEP}'):
                 self.armature_obj[k] = 1.
 
     def load_teamcolor(self, path: pathlib.Path | str) -> dict:

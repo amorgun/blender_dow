@@ -4,7 +4,7 @@ import platform
 import bpy
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from . import importer, exporter
+from . import importer, exporter, operators
 
 
 ADDON_LOCATION = pathlib.Path(__file__).parent
@@ -339,9 +339,11 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
+    operators.register()
 
 
 def unregister():
+    operators.unregister()
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)
