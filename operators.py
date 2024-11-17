@@ -39,7 +39,7 @@ def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_ob
         row.context_pointer_set(name='obj', data=obj)
         for k, v in extra_objs.items():
             row.context_pointer_set(name=k, data=v)
-        row.operator('object.dow_setup_prop', text=f'Setup "{display_name}"').name = prop_name
+        row.operator('object.dow_setup_prop', text=f'Create "{display_name}"').name = prop_name
 
 
 class DowTools(bpy.types.Panel):
