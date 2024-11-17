@@ -112,6 +112,12 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         default=False,
     )
 
+    strict_mode: bpy.props.BoolProperty(
+        name='Strict',
+        description='Fail if the model has format errors',
+        default=False,
+    )
+
     def execute(self, context):
         if self.new_project:
             bpy.ops.wm.read_homefile(app_template='')
@@ -130,6 +136,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                 pathlib.Path(addon_prefs.mod_folder),
                 load_wtp=self.load_wtp,
                 create_cameras=self.create_cameras,
+                stric_mode=self.strict_mode,
                 context=context,
             )
             window = context.window_manager.windows[0]

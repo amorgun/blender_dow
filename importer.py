@@ -52,10 +52,11 @@ class WhmLoader:
     TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
 
-    def __init__(self, root: pathlib.Path, load_wtp: bool = True, create_cameras: bool = False, context=None):
+    def __init__(self, root: pathlib.Path, load_wtp: bool = True, create_cameras: bool = False, stric_mode: bool = True, context=None):
         self.root = root
         self.wtp_load_enabled = load_wtp
         self.create_cameras = create_cameras
+        self.stric_mode = stric_mode
         self.bpy_context = context
         if self.bpy_context is None:
             self.bpy_context = bpy.context
@@ -81,6 +82,13 @@ class WhmLoader:
         self.default_image = bpy.data.images.new('NOT_SET', 1, 1)
         self.default_image['PLACEHOLDER'] = True
         self.default_image.use_fake_user = True
+
+    def ensure(self, condition: bool, message: str):
+        if self.stric_mode:
+            assert condition, message
+            return
+        if not condition:
+            self.messages.append(('WARNING', f'Assestion violated: {message}'))
 
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
@@ -488,7 +496,7 @@ class WhmLoader:
 
             if marker_name in self.armature.bones:
                 continue  # FIXME
-            assert marker_name not in self.armature.bones, marker_name
+            self.ensure(marker_name not in self.armature.bones, marker_name)
 
             parent = self.armature.edit_bones.get(parent_name)
             if parent is None:
@@ -740,8 +748,8 @@ class WhmLoader:
 
         current_chunk = reader.read_header('DATADATA')
         rsv0_a, flag, num_polygons, rsv0_b = reader.read_struct('<l b l l') # -- skip 13 bytes (unknown)
-        assert flag == 1, f'{mesh_name}: {flag=}'
-        assert rsv0_a == 0 and rsv0_b == 0
+        self.ensure(flag == 1, f'{mesh_name}: {flag=}')
+        self.ensure(rsv0_a == 0 and rsv0_b == 0, f'{mesh_name}: {rsv0_a=} {rsv0_b=}')
         num_skin_bones = reader.read_one('<l')  # -- get number of bones mesh is weighted to
 
         #---< SKIN BONES >---
@@ -749,13 +757,13 @@ class WhmLoader:
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
             bone_idx = reader.read_one('<l')
-            assert bone_array[bone_idx].name == bone_name
+            self.ensure(bone_array[bone_idx].name == bone_name, f'"{bone_array[bone_idx].name}" != "{bone_name}"')
 
         #---< VERTICES >---
 
         num_vertices = reader.read_one('<l')  # -- read number of vertices
         vertex_size_id = reader.read_one('<l')  # 37 or 39
-        assert (num_skin_bones != 0) * 2 == vertex_size_id - 37
+        self.ensure((num_skin_bones != 0) * 2 == vertex_size_id - 37, f'{num_skin_bones=} and {vertex_size_id=}')
 
         vert_array = []       # -- array to store vertex data
         for _ in range(num_vertices):
@@ -826,7 +834,7 @@ class WhmLoader:
                     matid_array.append(0)  # Default material
             reader.skip(8)  # -- Skip 8 Bytes To Next Texture Name Length. 4 data bytes + 4 zeros
 
-        assert num_polygons == len(face_array), f'{mesh_name}: {num_polygons} != {len(face_array)}'
+        self.ensure(num_polygons == len(face_array), f'{mesh_name}: {num_polygons} != {len(face_array)}')
 
         #---< SHADOW VOLUME >---
 
