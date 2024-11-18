@@ -886,8 +886,8 @@ class Exporter:
                 try:
                     anim_obj = anim_root.path_resolve(path) if path else anim_root
                 except Exception:
-                    self.messages.append(('ERROR', f'Cannot resolve path "{path}" in the action "{action.name}"'))
-                    raise
+                    self.messages.append(('WARNING', f'Cannot resolve path "{path}" in the action "{action.name}"'))
+                    continue
                 anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
 
             def get_prop_fcurves(prop: str, obj_name: str) -> list:
