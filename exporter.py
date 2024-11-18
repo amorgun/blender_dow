@@ -707,7 +707,7 @@ class Exporter:
                         seen_data = {}
 
                         if len(mesh.uv_layers) != 1:
-                            self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
+                            self.messages.append(('WARNING', f'Meshes must have exactly 1 uv layer, "{obj.name}" has {len(mesh.uv_layers)}'))
                         for poly in mesh.loop_triangles:
                             poly_vertices = []
                             for loop_idx in poly.loops:
@@ -763,8 +763,6 @@ class Exporter:
                                 no_custom_normals_warn = True
                         for v in extended_vertices:
                             writer.write_struct('<3f', -v.normal.x, v.normal.z, -v.normal.y)
-                        if len(mesh.uv_layers) != 1:
-                            self.messages.append(('ERROR', f'Mesh {obj.name} mush have exactly 1 uv layer'))
                         for v in extended_vertices:
                             writer.write_struct('<2f', v.uv.x, 1 - v.uv.y)
                         if self.format is ExportFormat.WHM:
