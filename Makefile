@@ -5,7 +5,7 @@ TMP_DIR := build
 
 all: wheels build
 
-build: __init__.py importer.py exporter.py chunky.py textures.py utils.py slpp.py blender_manifest.toml \
+build: __init__.py importer.py exporter.py chunky.py textures.py utils.py operators.py slpp.py blender_manifest.toml \
  LICENSE README.md docs/export.md docs/magic.md docs/tts_import.md default_badge.tga default_banner.tga
 	mkdir $(TMP_DIR); \
 	cp -r ./wheels $^ $(TMP_DIR); \
