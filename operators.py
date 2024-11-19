@@ -31,6 +31,54 @@ def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_ob
         row.operator('object.dow_setup_prop', text=f'Set up "{display_name}"').name = prop_name
 
 
+class DOW_OT_attach_object(bpy.types.Operator):
+    """Attach the object to the armature"""
+
+    bl_idname = 'object.dow_attach_object'
+    bl_label = 'Attach to armature'
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.active_object is not None
+            and context.active_object.type == 'ARMATURE'
+            and any(o.type == 'MESH'
+                    and props.get_mesh_prop_owner(o) != context.active_object
+                    for o in context.selected_objects)
+        )
+
+    def execute(self, context):
+        armature = context.active_object
+        for obj in context.selected_objects:
+            if obj.type != 'MESH':
+                continue
+            remote_prop_owner = props.get_mesh_prop_owner(obj)
+            if remote_prop_owner == armature:
+                continue
+            obj.parent = armature
+            for mod in obj.modifiers:
+                if mod.type == 'ARMATURE':
+                    mod.object = armature
+            if remote_prop_owner is None:
+                continue
+            for prop in props.REMOTE_PROPS[obj.type]:
+                prop_name = props.create_prop_name(prop, obj.name)
+                if prop_name in remote_prop_owner:
+                    armature[prop_name] = remote_prop_owner[prop_name]
+                props.setup_drivers(obj, armature, prop_name)
+            for mat in obj.data.materials:
+                remote_prop_owner = props.get_material_prop_owner(mat)
+                if remote_prop_owner is None or remote_prop_owner == armature:
+                    continue
+                for prop in props.REMOTE_PROPS['MATERIAL']:
+                    prop_name = props.create_prop_name(prop, mat.name)
+                    if prop_name in remote_prop_owner:
+                        armature[prop_name] = remote_prop_owner[prop_name]
+                    props.setup_drivers(mat, armature, prop_name)
+        return {'FINISHED'}
+
+
 class DOW_OT_detach_object(bpy.types.Operator):
     """Detach the object from it's armature"""
 
@@ -98,6 +146,7 @@ class DowTools(bpy.types.Panel):
             layout.separator()
             make_prop_row(layout, context.active_pose_bone, 'stale')
         layout.separator()
+        layout.row().operator('object.dow_attach_object')
         layout.row().operator('object.dow_detach_object')
 
 
@@ -227,6 +276,7 @@ def register():
     bpy.utils.register_class(DowTools)
     bpy.utils.register_class(DowMaterialTools)
     bpy.utils.register_class(DOW_OT_setup_property)
+    bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
     for t in [
         bpy.types.Object,
@@ -254,6 +304,7 @@ def unregister():
     ]:
         delattr(t, 'dow_name')
     bpy.utils.unregister_class(DOW_OT_detach_object)
+    bpy.utils.unregister_class(DOW_OT_attach_object)
     bpy.utils.unregister_class(DOW_OT_setup_property)
     bpy.utils.unregister_class(DowMaterialTools)
     bpy.utils.unregister_class(DowTools)
