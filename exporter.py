@@ -230,7 +230,11 @@ class Exporter:
         for mat in bpy.data.materials:
             if not mat_users[mat]:
                 continue
-            self.write_material(writer, mat)
+            try:
+                self.write_material(writer, mat)
+            except Exception:
+                self.messages.append(('ERROR', f'Error while exporting material {mat.name}'))
+                raise
 
     def write_material(self, writer: ChunkWriter, mat) -> bool:
         if not mat.node_tree:
