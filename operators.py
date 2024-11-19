@@ -249,6 +249,7 @@ def rename_listener(scene, depsgraph):
                         if is_renamed:
                             remote_prop_owner.pop(old_prop_name)
                             rename_props.append((f'["{old_prop_name}"]', f'["{new_prop_name}"]'))
+                        props.clear_drivers(obj, old_prop_name)
                         props.setup_drivers(obj, remote_prop_owner, new_prop_name)
             if update_animations is None:
                 addon_prefs = bpy.context.preferences.addons[__package__].preferences
