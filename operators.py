@@ -31,6 +31,42 @@ def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_ob
         row.operator('object.dow_setup_prop', text=f'Set up "{display_name}"').name = prop_name
 
 
+class DOW_OT_detach_object(bpy.types.Operator):
+    """Detach the object from it's armature"""
+
+    bl_idname = 'object.dow_detach_object'
+    bl_label = 'Detach from armature'
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            o.type == 'MESH'
+            for o in context.selected_objects
+        )
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type != 'MESH':
+                continue
+            remote_prop_owner = props.get_mesh_prop_owner(obj)
+            for prop in props.REMOTE_PROPS[obj.type]:
+                props.clear_drivers(obj, prop)
+                if remote_prop_owner is not None:
+                    remote_prop_owner.pop(props.create_prop_name(prop, obj.name), None)
+            obj.parent = None
+            for mod in obj.modifiers:
+                if mod.type == 'ARMATURE':
+                    mod.object = None
+            for mat in obj.data.materials:
+                remote_prop_owner = props.get_material_prop_owner(mat)
+                for prop in props.REMOTE_PROPS['MATERIAL']:
+                    props.clear_drivers(mat, prop)
+                    if remote_prop_owner is not None:
+                        remote_prop_owner.pop(props.create_prop_name(prop, mat.name), None)
+        return {'FINISHED'}
+
+
 class DowTools(bpy.types.Panel):
     bl_label = 'DoW Tools'
     bl_idname = 'VIEW3D_PT_dow_tools'
@@ -38,18 +74,12 @@ class DowTools(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'DoW'
 
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.active_object is not None and context.active_object.type == 'MESH'
-        ) or (
-            context.active_pose_bone is not None
-        )
-
     def draw(self, context):
         layout = self.layout
         if context.active_object is not None:
             if context.active_object.type == 'MESH':
+                layout.row().prop(context.active_object, 'name')
+                layout.separator()
                 remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
                 if remote_prop_owner is None:
                     layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
@@ -64,7 +94,11 @@ class DowTools(bpy.types.Panel):
                         )
                 make_prop_row(layout, context.active_object, 'xref_source')
         if context.active_pose_bone is not None:
+            layout.row().prop(context.active_pose_bone, 'name')
+            layout.separator()
             make_prop_row(layout, context.active_pose_bone, 'stale')
+        layout.separator()
+        layout.row().operator('object.dow_detach_object')
 
 
 class DowMaterialTools(bpy.types.Panel):
@@ -193,6 +227,7 @@ def register():
     bpy.utils.register_class(DowTools)
     bpy.utils.register_class(DowMaterialTools)
     bpy.utils.register_class(DOW_OT_setup_property)
+    bpy.utils.register_class(DOW_OT_detach_object)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -218,6 +253,7 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         delattr(t, 'dow_name')
+    bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_setup_property)
     bpy.utils.unregister_class(DowMaterialTools)
     bpy.utils.unregister_class(DowTools)

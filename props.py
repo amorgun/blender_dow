@@ -90,6 +90,23 @@ def setup_drivers(obj, target_obj, prop_name: str):
             add_driver(obj=obj.node_tree, obj_prop_path='nodes["Mapping"].inputs[3].default_value', target_data_path=f'["{prop_name}"][1]', fallback_value=1, index=1)
 
 
+def clear_drivers(obj, prop_name: str):
+    driver_obj = obj
+    driver_paths = set()
+    match get_prop_prefix(prop_name):
+        case 'visibility':
+            driver_paths = {('color', 3)}
+        case 'uv_offset':
+            driver_obj = obj.node_tree
+            driver_paths = {('nodes["Mapping"].inputs[1].default_value', i) for i in (0, 1)}
+        case 'uv_tiling':
+            driver_obj = obj.node_tree
+            driver_paths = {('nodes["Mapping"].inputs[3].default_value', i) for i in (0, 1)}
+    for d in driver_obj.animation_data.drivers:
+        if (d.data_path, d.array_index) in driver_paths:
+            driver_obj.driver_remove(d.data_path, d.array_index)
+
+
 def get_mesh_prop_owner(mesh_obj):
     if mesh_obj.parent is None or mesh_obj.parent.type != 'ARMATURE':
         return None
