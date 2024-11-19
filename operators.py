@@ -28,7 +28,7 @@ def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_ob
         row.context_pointer_set(name='obj', data=obj)
         for k, v in extra_objs.items():
             row.context_pointer_set(name=k, data=v)
-        row.operator('object.dow_setup_prop', text=f'Set up "{display_name}"').name = prop_name
+        row.operator(DOW_OT_setup_property.bl_idname, text=f'Set up "{display_name}"').name = prop_name
 
 
 class DOW_OT_attach_object(bpy.types.Operator):
@@ -150,8 +150,8 @@ class DowTools(bpy.types.Panel):
             layout.separator()
             make_prop_row(layout, context.active_pose_bone, 'stale')
         layout.separator()
-        layout.row().operator('object.dow_attach_object')
-        layout.row().operator('object.dow_detach_object')
+        layout.row().operator(DOW_OT_attach_object.bl_idname)
+        layout.row().operator(DOW_OT_detach_object.bl_idname)
 
 
 class DowMaterialTools(bpy.types.Panel):
