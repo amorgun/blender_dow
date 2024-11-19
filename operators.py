@@ -1,6 +1,6 @@
 import bpy
 
-from . import utils, props
+from . import props
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -41,7 +41,7 @@ class DOW_OT_detach_object(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return any(
-            o.type == 'MESH'
+            o.type == 'MESH' and props.get_mesh_prop_owner(o) is not None
             for o in context.selected_objects
         )
 
