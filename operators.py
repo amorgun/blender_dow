@@ -1,8 +1,6 @@
-import functools
-
 import bpy
 
-from . import utils
+from . import utils, props
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -15,19 +13,10 @@ class DOW_OT_setup_property(bpy.types.Operator):
     name: bpy.props.StringProperty()
 
     def execute(self, context):
-        utils.setup_property(context.obj, self.name)
+        props.setup_property(context.obj, self.name)
 
-        if hasattr(context, 'driver_source') and hasattr(context, 'driver_target'):
-            add_driver = functools.partial(utils.add_driver, obj=context.driver_source, target_id=context.driver_target)
-
-        if self.name.startswith(f'visibility{utils.PROP_SEP}'):
-            add_driver(obj_prop_path='color', target_data_path=f'["{self.name}"]', fallback_value=1.0, index=3)
-        if self.name.startswith(f'uv_offset{utils.PROP_SEP}'):
-            add_driver(obj_prop_path='nodes["Mapping"].inputs[1].default_value', target_data_path=f'["{self.name}"][0]', fallback_value=0, index=0)
-            add_driver(obj_prop_path='nodes["Mapping"].inputs[1].default_value', target_data_path=f'["{self.name}"][1]', fallback_value=0, index=1)
-        if self.name.startswith(f'uv_tiling{utils.PROP_SEP}'):
-            add_driver(obj_prop_path='nodes["Mapping"].inputs[3].default_value', target_data_path=f'["{self.name}"][0]', fallback_value=1, index=0)
-            add_driver(obj_prop_path='nodes["Mapping"].inputs[3].default_value', target_data_path=f'["{self.name}"][1]', fallback_value=1, index=1)
+        if hasattr(context, 'driver_obj'):
+            props.setup_drivers(context.driver_obj, context.obj, self.name)
         return {'FINISHED'}
 
 
@@ -61,20 +50,17 @@ class DowTools(bpy.types.Panel):
         layout = self.layout
         if context.active_object is not None:
             if context.active_object.type == 'MESH':
-                if context.active_object.parent is None or context.active_object.parent.type != 'ARMATURE':
+                remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
+                if remote_prop_owner is None:
                     layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
                 else:
-                    for prop in [
-                        'force_invisible',
-                        'visibility',
-                    ]:
+                    for prop in props.REMOTE_PROPS['MESH']:
                         make_prop_row(
                             layout,
-                            context.active_object.parent,
-                            prop_name=utils.create_prop_name(prop, context.active_object.name),
+                            remote_prop_owner,
+                            prop_name=props.create_prop_name(prop, context.active_object.name),
                             display_name=prop,
-                            driver_source=context.active_object,
-                            driver_target=context.active_object.parent,
+                            driver_obj=context.active_object,
                         )
                 make_prop_row(layout, context.active_object, 'xref_source')
         if context.active_pose_bone is not None:
@@ -97,17 +83,6 @@ class DowMaterialTools(bpy.types.Panel):
             and context.active_object.active_material.node_tree is not None
         )
 
-    def get_armature(self, mat):
-        if mat.node_tree.animation_data is None:
-            return None
-        for driver in mat.node_tree.animation_data.drivers:
-            if driver.data_path.startswith('nodes["Mapping"].inputs'):
-                try:
-                    target = driver.driver.variables[0].targets[0]
-                    return target.id
-                except Exception:
-                    continue
-
     def draw(self, context):
         layout = self.layout
         mat = context.active_object.active_material
@@ -115,21 +90,17 @@ class DowMaterialTools(bpy.types.Panel):
         # if mapping_node is None:
         #     layout.row().label(text='Material is not parented to an armature', icon='ERROR')
         #     return
-        arm = self.get_armature(mat)
-        if arm is None:
+        remote_prop_owner = props.get_material_prop_owner(mat)
+        if remote_prop_owner is None:
             layout.row().label(text='Material is not parented to an armature', icon='ERROR')
         else:
-            for prop in [
-                'uv_offset',
-                'uv_tiling',
-            ]:
+            for prop in props.REMOTE_PROPS['MATERIAL']:
                 make_prop_row(
                     layout,
-                    arm,
-                    prop_name=utils.create_prop_name(prop, mat.name),
+                    remote_prop_owner,
+                    prop_name=props.create_prop_name(prop, mat.name),
                     display_name=prop,
-                    driver_source=mat.node_tree,
-                    driver_target=arm,
+                    driver_obj=mat,
                 )
         for prop in [
             'full_path',
@@ -137,13 +108,116 @@ class DowMaterialTools(bpy.types.Panel):
         ]:
             make_prop_row(layout, mat, prop)
 
+
+@bpy.app.handlers.persistent
+def rename_listener(scene, depsgraph):
+    if not depsgraph.id_type_updated('OBJECT'):
+        return
+
+    update_animations = None
+
+    for update in depsgraph.updates:
+        if isinstance(update.id, bpy.types.Armature):
+            collection = bpy.data.objects
+            arm = collection.get(update.id.name)
+            if not arm or arm.type != 'ARMATURE':
+                continue
+            objs = collection = arm.pose.bones
+            remote_prop_owner = None
+            obj_type = 'ARMATURE'
+        elif isinstance(update.id, bpy.types.Material):
+            collection = bpy.data.materials
+            obj = collection.get(update.id.name)
+            objs = [obj] if obj else []
+            remote_prop_owner = props.get_material_prop_owner(obj)
+            obj_type = 'MATERIAL'
+        elif isinstance(update.id, bpy.types.Object):
+            collection = bpy.data.objects
+            obj = collection.get(update.id.name)
+            objs = [obj] if obj else []
+            remote_prop_owner = props.get_mesh_prop_owner(obj)
+            obj_type = 'MESH'
+        else:
+            continue
+
+        for obj in objs:
+            if not (obj and hasattr(obj, 'dow_name')):
+                continue
+            old_name = obj.dow_name
+            if old_name == obj.name:
+                continue
+            obj.dow_name = obj.name
+            is_renamed = True
+            if old_name in collection:
+                is_renamed = False # Object copied
+            rename_props = []
+            if obj_type == 'ARMATURE' and is_renamed:
+                rename_props.append((f'bones["{old_name}"]', f'bones["{obj.name}"]'))
+            if remote_prop_owner is not None:
+                for prop_prefix in props.REMOTE_PROPS.get(obj_type, []):
+                    old_prop_name = props.create_prop_name(prop_prefix, old_name)
+                    new_prop_name = props.create_prop_name(prop_prefix, obj.name)
+                    if old_prop_name in remote_prop_owner:
+                        props.setup_property(remote_prop_owner, new_prop_name, remote_prop_owner[old_prop_name])
+                        if is_renamed:
+                            remote_prop_owner.pop(old_prop_name)
+                            rename_props.append((f'["{old_prop_name}"]', f'["{new_prop_name}"]'))
+                        props.setup_drivers(obj, remote_prop_owner, new_prop_name)
+            if update_animations is None:
+                addon_prefs = bpy.context.preferences.addons[__package__].preferences
+                update_animations = addon_prefs.update_animations
+            if not update_animations:
+                continue
+            if not is_renamed:
+                continue
+            for rename_from, rename_to in rename_props:
+                for action in bpy.data.actions:
+                    for fcurve in action.fcurves:
+                        if rename_from in fcurve.data_path:
+                            fcurve.data_path = fcurve.data_path.replace(rename_from, rename_to)
+
+
+@bpy.app.handlers.persistent
+def init_nameprops(filename: str = ''):
+    for obj in bpy.data.objects:
+        if obj.type == 'ARMATURE':
+            for b in obj.pose.bones:
+                b.dow_name = b.name
+        if obj.type == 'MESH':
+            obj.dow_name = obj.name
+    for obj in bpy.data.materials:
+        obj.dow_name = obj.name
+
+
 def register():
     bpy.utils.register_class(DowTools)
     bpy.utils.register_class(DowMaterialTools)
     bpy.utils.register_class(DOW_OT_setup_property)
+    for t in [
+        bpy.types.Object,
+        bpy.types.Material,
+        bpy.types.PoseBone,
+    ]:
+        t.dow_name = bpy.props.StringProperty(name='DoW name')
+    bpy.app.handlers.depsgraph_update_post.append(rename_listener)
+    bpy.app.handlers.load_post.append(init_nameprops)
 
 
 def unregister():
+    bpy.app.handlers.load_post[:] = [
+        h for h in bpy.app.handlers.depsgraph_update_post
+        if h is not init_nameprops
+    ]
+    bpy.app.handlers.depsgraph_update_post[:] = [
+        h for h in bpy.app.handlers.depsgraph_update_post
+        if h is not rename_listener
+    ]
+    for t in [
+        bpy.types.Object,
+        bpy.types.Material,
+        bpy.types.PoseBone,
+    ]:
+        delattr(t, 'dow_name')
     bpy.utils.unregister_class(DOW_OT_setup_property)
     bpy.utils.unregister_class(DowMaterialTools)
     bpy.utils.unregister_class(DowTools)

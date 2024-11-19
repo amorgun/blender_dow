@@ -22,6 +22,12 @@ class AddonPreferences(bpy.types.AddonPreferences):
         ) / 'Dawn of War/My_Mod').expanduser()),
     )
 
+    update_animations: bpy.props.BoolProperty(
+        name="Update actions on renames",
+        description='Automatically update all actions on mesh and bone renames',
+        default=True,
+    )
+
     primary_color: bpy.props.FloatVectorProperty(
         name='Primary',
         default=(0.43, 0.08, 0.00),
@@ -68,13 +74,14 @@ class AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         self.layout.prop(self, 'mod_folder')
+        self.layout.prop(self, 'update_animations')
         teamcolor_panel_header, teamcolor_panel = self.layout.panel('default_teamcolor')
         teamcolor_panel_header.label(text='Default teamcolor')
         if teamcolor_panel is not None:
             teamcolor_panel.row().prop(self, 'primary_color')
             teamcolor_panel.row().prop(self, 'secondary_color')
             teamcolor_panel.row().prop(self, 'trim_color')
-            teamcolor_panel.row().prop(self, 'weapon_color')
+            teamcolor_panel.row().prop(self, 'weapons_color')
             teamcolor_panel.row().prop(self, 'eyes_color')
             teamcolor_panel.prop(self, 'badge_path')
             teamcolor_panel.prop(self, 'banner_path')
@@ -153,6 +160,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                             space = area.spaces.active
                             if space.type == 'VIEW_3D':
                                 space.shading.type = 'MATERIAL'
+                    operators.init_nameprops()
                 finally:
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)

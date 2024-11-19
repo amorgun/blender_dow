@@ -13,7 +13,7 @@ import tempfile
 import bpy
 import mathutils
 
-from . import textures, utils
+from . import textures, utils, props
 from .chunky import ChunkWriter
 from .utils import print
 
@@ -872,8 +872,8 @@ class Exporter:
                     py_path = f'x{fcurve.data_path}' if fcurve.data_path.startswith('[') else f'x.{fcurve.data_path}'
                     attr = ast.parse(py_path, mode='single').body[0].value.slice.value
                     path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
-                    if utils.PROP_SEP in attr:
-                        prop_group, obj_name = attr.split(utils.PROP_SEP, 1)
+                    if props.SEP in attr:
+                        prop_group, obj_name = attr.split(props.SEP, 1)
                         prop_fcurves[prop_group.lower()].setdefault(obj_name.lower(), []).append(fcurve)
                 else:
                     for suffix in ['.rotation_quaternion', '.location']:
@@ -970,7 +970,12 @@ class Exporter:
                             writer.write_struct('<b', stale_flag)
 
                     mesh_fcurves = prop_fcurves['visibility'].keys() | prop_fcurves['force_invisible'].keys()
-                    num_tex_fcurves = sum(len(fc) for g in ['uv_offset', 'uv_tiling'] for fc in prop_fcurves[g].values())
+                    exported_tex_fcurves = {
+                        (g, mat_name): get_prop_fcurves(g, mat_name)
+                        for mat_name in self.exported_materials
+                        for g in ['uv_offset', 'uv_tiling']
+                    }
+                    num_tex_fcurves = sum(len(fc) for fc in exported_tex_fcurves.values())
                     if self.format is ExportFormat.WHM:
                         writer.write_struct('<l', len(self.exported_meshes) + num_tex_fcurves)
 
@@ -1006,7 +1011,7 @@ class Exporter:
                         if mat.name not in self.exported_materials:
                             continue
                         for group in ['uv_offset', 'uv_tiling']:
-                            fcurves = get_prop_fcurves(group, mat.name)
+                            fcurves = exported_tex_fcurves[group, mat.name]
                             mat_path = self.get_material_path(mat)
                             for fcurve in fcurves:
                                 if self.format is ExportFormat.WHM:
