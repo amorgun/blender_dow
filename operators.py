@@ -60,22 +60,24 @@ class DOW_OT_attach_object(bpy.types.Operator):
             for mod in obj.modifiers:
                 if mod.type == 'ARMATURE':
                     mod.object = armature
-            if remote_prop_owner is None:
-                continue
             for prop in props.REMOTE_PROPS[obj.type]:
                 prop_name = props.create_prop_name(prop, obj.name)
+                props.clear_drivers(obj, prop_name)
+                props.setup_drivers(obj, armature, prop_name)
+                if remote_prop_owner is None:
+                    continue
                 if prop_name in remote_prop_owner:
                     armature[prop_name] = remote_prop_owner[prop_name]
-                props.setup_drivers(obj, armature, prop_name)
             for mat in obj.data.materials:
                 remote_prop_owner = props.get_material_prop_owner(mat)
-                if remote_prop_owner is None or remote_prop_owner == armature:
-                    continue
                 for prop in props.REMOTE_PROPS['MATERIAL']:
                     prop_name = props.create_prop_name(prop, mat.name)
+                    props.clear_drivers(mat, prop_name)
+                    props.setup_drivers(mat, armature, prop_name)
+                    if remote_prop_owner is None or remote_prop_owner == armature:
+                        continue
                     if prop_name in remote_prop_owner:
                         armature[prop_name] = remote_prop_owner[prop_name]
-                    props.setup_drivers(mat, armature, prop_name)
         return {'FINISHED'}
 
 
@@ -99,9 +101,10 @@ class DOW_OT_detach_object(bpy.types.Operator):
                 continue
             remote_prop_owner = props.get_mesh_prop_owner(obj)
             for prop in props.REMOTE_PROPS[obj.type]:
-                props.clear_drivers(obj, prop)
+                prop_name = props.create_prop_name(prop, obj.name)
+                props.clear_drivers(obj, prop_name)
                 if remote_prop_owner is not None:
-                    remote_prop_owner.pop(props.create_prop_name(prop, obj.name), None)
+                    remote_prop_owner.pop(prop_name, None)
             obj.parent = None
             for mod in obj.modifiers:
                 if mod.type == 'ARMATURE':
@@ -109,9 +112,10 @@ class DOW_OT_detach_object(bpy.types.Operator):
             for mat in obj.data.materials:
                 remote_prop_owner = props.get_material_prop_owner(mat)
                 for prop in props.REMOTE_PROPS['MATERIAL']:
-                    props.clear_drivers(mat, prop)
+                    prop_name = props.create_prop_name(prop, obj.name)
+                    props.clear_drivers(mat, prop_name)
                     if remote_prop_owner is not None:
-                        remote_prop_owner.pop(props.create_prop_name(prop, mat.name), None)
+                        remote_prop_owner.pop(prop_name, None)
         return {'FINISHED'}
 
 
