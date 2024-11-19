@@ -83,6 +83,9 @@ class AddonPreferences(bpy.types.AddonPreferences):
     last_args: bpy.props.PointerProperty(type=MyPropertyGroup)
 
     def draw(self, context):
+        mod_folder = pathlib.Path(self.mod_folder)
+        if not (mod_folder.is_dir() and any(p.name.lower() == 'data' and p.is_dir() for p in mod_folder.iterdir())):
+            self.layout.label(text='''The mod folder is probably not set up correctly. It must be a directory containing a 'data ' subdirectory.''', icon='ERROR')
         self.layout.prop(self, 'mod_folder')
         self.layout.prop(self, 'update_animations')
         teamcolor_panel_header, teamcolor_panel = self.layout.panel('default_teamcolor')
