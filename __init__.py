@@ -326,15 +326,14 @@ class ExportModel:
         return {'FINISHED'}
 
     def invoke(self, context, _event):
-        if self.filepath:
-            blend_filepath = context.blend_data.filepath
-            if blend_filepath:
-                blend_filename = pathlib.Path(blend_filepath).stem
-            elif context.scene.dow_export_filename:
-                blend_filename = context.scene.dow_export_filename
-            else:
-                blend_filename = 'untitled'
-            self.filepath = str(pathlib.Path(self.filepath).parent / f'{blend_filename}{self.filename_ext}')
+        blend_filepath = context.blend_data.filepath
+        if blend_filepath:
+            blend_filename = pathlib.Path(blend_filepath).stem
+        elif context.scene.dow_export_filename:
+            blend_filename = context.scene.dow_export_filename
+        else:
+            blend_filename = 'untitled'
+        self.filepath = str(pathlib.Path(self.filepath).parent / f'{blend_filename}{self.filename_ext}')
         return super().invoke(context, _event)
 
 
