@@ -1,5 +1,6 @@
 # Blender Dawn of War Addon
 Blender addon for import and export of Dawn of War models.  
+<a href="https://www.moddb.com/mods/blender-dawn-of-war-addon" title="View Blender Dawn of War Addon on ModDB" target="_blank"><img src="https://button.moddb.com/rating/medium/mods/62793.png" alt="Blender Dawn of War Addon" /></a>
 
 ![blender_screenshot](images/dred_render1.png)
 
