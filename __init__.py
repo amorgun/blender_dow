@@ -172,6 +172,8 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, 'import_whm',
                   'filepath', 'new_project', 'load_wtp', 'create_cameras', 'strict_mode')
+        if not context.scene.dow_export_filename:
+            context.scene.dow_export_filename = pathlib.Path(self.filepath).stem
         with open(self.filepath, 'rb') as f:
             reader = importer.ChunkReader(f)
             loader = importer.WhmLoader(
@@ -326,7 +328,12 @@ class ExportModel:
     def invoke(self, context, _event):
         if self.filepath:
             blend_filepath = context.blend_data.filepath
-            blend_filename = 'untitled' if not blend_filepath else pathlib.Path(blend_filepath).stem
+            if blend_filepath:
+                blend_filename = pathlib.Path(blend_filepath).stem
+            elif context.scene.dow_export_filename:
+                blend_filename = context.scene.dow_export_filename
+            else:
+                blend_filename = 'untitled'
             self.filepath = str(pathlib.Path(self.filepath).parent / f'{blend_filename}{self.filename_ext}')
         return super().invoke(context, _event)
 
@@ -396,11 +403,13 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
+    bpy.types.Scene.dow_export_filename = bpy.props.StringProperty()
     operators.register()
 
 
 def unregister():
     operators.unregister()
+    delattr(bpy.types.Scene, 'dow_export_filename')
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)
