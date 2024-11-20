@@ -674,6 +674,7 @@ class Exporter:
         self.exported_meshes = []
         depsgraph = self.bpy_context.evaluated_depsgraph_get()
         global_min_corner, global_max_corner = mathutils.Vector([float('+inf')]*3), mathutils.Vector([float('-inf')]*3)
+        mesh_xrefs = {}
         with writer.start_chunk('FOLDMSGR'):
             for obj_orig in bpy.data.objects:
                 if obj_orig.type != 'MESH':
@@ -688,18 +689,31 @@ class Exporter:
                 self.exported_meshes.append(obj.name)
                 vert_warn = False
                 many_bones_warn = False
+
+                vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
+
+                if len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
+                    self.messages.append(('WARNING', f'Mesh "{obj.name}" seems to be not weighted to any bones'))
+                    vertex_groups = []
+                if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
+                    assert vertex_groups[0].name in self.bone_to_idx, f'Cannot find bone "{vertex_groups[0].name}" for mesh "{obj.name}"'
+                    single_bone_meshes[obj.name] = self.bone_to_idx[vertex_groups[0].name]
+                    vertex_groups = []
+
+                xref_source = obj_orig.get('xref_source', '').strip()
+                if xref_source:
+                    # TODO check if file exists
+                    if vertex_groups != []:
+                        self.messages.append(('WARNING', f'Mesh "{obj.name}" is weighted to {len(vertex_groups)} bones. Xrefed meshes cannot be attached to more than 1 bone.'))
+                        xref_source = ''
+                    else:
+                        mesh_xrefs[obj.name] = xref_source
+                        continue
+
                 with writer.start_chunk('FOLDMSLC', name=obj.name):
                     with writer.start_chunk('DATADATA'):
                         writer.write_struct('<4xbL4x', 1, len(mesh.loop_triangles))
-                        vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
 
-                        if len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
-                            self.messages.append(('WARNING', f'Mesh {obj.name} seems to be not weighted to any bones'))
-                            vertex_groups = []
-                        if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
-                            assert vertex_groups[0].name in self.bone_to_idx, f'Cannot find bone {vertex_groups[0].name} for mesh {obj.name}'
-                            single_bone_meshes[obj.name] = self.bone_to_idx[vertex_groups[0].name]
-                            vertex_groups = []
                         writer.write_struct('<l', len(vertex_groups))
                         for g in vertex_groups:
                             writer.write_str(g.name)
@@ -711,7 +725,7 @@ class Exporter:
                         seen_data = {}
 
                         if len(mesh.uv_layers) != 1:
-                            self.messages.append(('WARNING', f'Meshes must have exactly 1 uv layer, "{obj.name}" has {len(mesh.uv_layers)}'))
+                            self.messages.append(('WARNING', f'Mesh "{obj.name}" has {len(mesh.uv_layers)} UV layers. It must have exactly 1 UV layer.'))
                         for poly in mesh.loop_triangles:
                             poly_vertices = []
                             for loop_idx in poly.loops:
@@ -814,11 +828,10 @@ class Exporter:
                             *[i for r in mathutils.Matrix.Identity(3) for i in r]
                         )
             with writer.start_chunk('DATADATA'):
-                # TODO xrefs
                 writer.write_struct('<l', len(self.exported_meshes))
                 for mesh_name in self.exported_meshes:
                     writer.write_str(mesh_name)
-                    writer.write_str('')  # mesh path
+                    writer.write_str(mesh_xrefs.get(mesh_name, ''))
                     writer.write_struct('<l', single_bone_meshes.get(mesh_name, -1))
             with writer.start_chunk('DATABVOL'):
                 writer.write_struct(
