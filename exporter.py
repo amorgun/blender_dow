@@ -612,6 +612,10 @@ class Exporter:
     def is_marker(cls, bone):
         return bone.name.startswith('marker_') or any('marker' in c.name.lower() for c in bone.collections)
 
+    @classmethod
+    def is_camera(cls, bone):
+        return any('camera' in c.name.lower() for c in bone.collections)
+
     def write_skel(self, writer: ChunkWriter):
         all_armatures = [a for a in bpy.data.objects if a.type == 'ARMATURE' if a.data.bones]
         if not all_armatures:
@@ -630,11 +634,7 @@ class Exporter:
                 data = bone_tree
             return data.setdefault(bone, {})
         
-        # FIXME - just export all non-markers and non-cameras
-        if 'Skeleton' in armature.collections:
-            bones = armature.collections['Skeleton'].bones
-        else:
-            bones = [b for b in armature.bones if not self.is_marker(b)]
+        bones = [b for b in armature.bones if not (self.is_marker(b) or self.is_camera(b))]
         self.exported_bones = bones
         if not self.exported_bones:
             return
