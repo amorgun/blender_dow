@@ -268,7 +268,7 @@ def rename_listener(scene, depsgraph):
 @bpy.app.handlers.persistent
 def init_nameprops(filename: str = ''):
     for obj in bpy.data.objects:
-        if obj.type == 'ARMATURE':
+        if obj.type == 'ARMATURE' and obj.pose:
             for b in obj.pose.bones:
                 b.dow_name = b.name
         if obj.type == 'MESH':
