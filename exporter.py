@@ -73,6 +73,7 @@ CHUNK_VERSIONS = {
             'FOLDTXTR': {
                 'version': 1,
                 'DATAHEAD': {'version': 1},
+                'DATAINFO': {'version': 3},
                 'FOLDIMAG': {
                     'version': 1,
                     'DATAATTR': {'version': 2},
@@ -96,6 +97,7 @@ CHUNK_VERSIONS = {
                 'DATABVOL': {'version': 2},
             },
             'DATAMARK': {'version': 1},
+            'DATACAMS': {'version': 1},
             'FOLDANIM': {
                 'version': 3,
                 'DATADATA': {'version': 2},
@@ -110,6 +112,7 @@ CHUNK_VERSIONS = {
             'FOLDTXTR': {
                 'version': 1,
                 'DATAHEAD': {'version': 1},
+                'DATAINFO': {'version': 3},
                 'FOLDIMAG': {
                     'version': 1,
                     'DATAATTR': {'version': 2},
@@ -137,6 +140,7 @@ CHUNK_VERSIONS = {
                 'DATABVOL': {'version': 2},
             },
             'DATAMARK': {'version': 1},
+            'DATACMRA': {'version': 1},
             'FOLDANIM': {
                 'version': 2,
                 'FOLDDATA': {
@@ -273,7 +277,7 @@ class Exporter:
 
         images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
         if mat.get('internal'):
-            export_success = self.write_rsh_chunks(writer, images_to_export, mat_path)
+            export_success = self.write_rsh_chunks(writer, images_to_export, mat_path, mat.name)
             if not export_success:
                 return
             self.exported_materials[mat.name] = str(mat_path)
