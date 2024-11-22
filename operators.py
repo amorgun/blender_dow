@@ -82,7 +82,7 @@ class DOW_OT_attach_object(bpy.types.Operator):
 
 
 class DOW_OT_detach_object(bpy.types.Operator):
-    """Detach the object from it's armature"""
+    """Detach the object from its armature"""
 
     bl_idname = 'object.dow_detach_object'
     bl_label = 'Detach from armature'
