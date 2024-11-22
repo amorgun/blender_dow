@@ -473,6 +473,7 @@ class WhmLoader:
             bone_collection.assign(marker)
             marker.color.palette = 'CUSTOM'
             marker.color.custom.normal = mathutils.Color([14, 255, 2]) / 255  # -- Set Color Of New Marker
+            marker.color.custom.active = mathutils.Color([255, 98, 255]) / 255
 
             if marker_name in self.armature.bones:
                 continue  # FIXME
@@ -487,6 +488,14 @@ class WhmLoader:
             marker.matrix =  parent_mat @ transform @ mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
             self.bone_transform[marker_name] = parent_mat @ transform
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+
+        custom_shape_template = bpy.data.objects.new(f'marker_custom_shape_template', None)
+        custom_shape_template.empty_display_type = 'ARROWS'
+        for bone in bone_collection.bones:
+            pose_bone = self.armature_obj.pose.bones[bone.name]
+            pose_bone.custom_shape = custom_shape_template
+            pose_bone.custom_shape_rotation_euler = 0, math.pi / 2, math.pi / 2
+            pose_bone.custom_shape_scale_xyz = 1, 1, -1
 
     def CH_DATACAMS(self, reader: ChunkReader):
         cameras_collection = bpy.data.collections.new('Cameras')
