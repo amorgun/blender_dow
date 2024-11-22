@@ -1,4 +1,5 @@
 import dataclasses
+import io
 import pathlib
 import math
 import tempfile
@@ -8,15 +9,12 @@ import mathutils
 
 from . import textures, utils, props
 from .chunky import ChunkReader
+from .dow_layout import DowLayout, LayoutPath, DirectoryPath
 from .utils import print
 
 
-# class BonePropGroup(bpy.types.PropertyGroup):
-#     stale: bpy.props.BoolProperty(name="Stale", default=False)
-
-# bpy.utils.register_class(BonePropGroup)
-
-# bpy.types.PoseBone.dow_settings = bpy.props.PointerProperty(name='DOW settings', type=BonePropGroup)
+def open_reader(path: LayoutPath) -> ChunkReader:
+    return ChunkReader(io.BytesIO(path.read_bytes()))
 
 
 @dataclasses.dataclass
@@ -39,6 +37,7 @@ class WhmLoader:
 
     def __init__(self, root: pathlib.Path, load_wtp: bool = True, stric_mode: bool = True, context=None):
         self.root = root
+        self.layout = DowLayout.from_mod_folder(root)
         self.wtp_load_enabled = load_wtp
         self.stric_mode = stric_mode
         self.bpy_context = context
@@ -79,19 +78,19 @@ class WhmLoader:
         material_path = reader.read_str()  # -- Read Texture Path
 
         if material_path not in self.loaded_material_paths:
-            full_material_path = self.root / 'Data' / f'{material_path}.rsh'
-            if not full_material_path.exists():
+            full_material_path = self.layout.find(f'{material_path}.rsh')
+            material_data = self.layout.find(f'{material_path}.rsh')
+            if not material_data:
                 self.messages.append(('WARNING', f'Cannot find texture {full_material_path}'))
                 return
-            with full_material_path.open('rb') as f:
-                material = self.load_rsh(ChunkReader(f), material_path)  # -- create new material
+            material = self.load_rsh(open_reader(material_data), material_path)  # -- create new material
             if self.wtp_load_enabled:
-                full_teamcolor_path = self.root / 'Data' / f'{material_path}_default.wtp'
-                if not full_teamcolor_path.exists():
-                    self.messages.append(('INFO', f'Cannot find {full_teamcolor_path}'))
+                teamcolor_path = f'{material_path}_default.wtp'
+                teamcolor_data = self.layout.find(teamcolor_path)
+                if not teamcolor_data:
+                    self.messages.append(('INFO', f'Cannot find {teamcolor_path}'))
                 else:
-                    with full_teamcolor_path.open('rb') as f:
-                        self.load_wtp(ChunkReader(f), material_path, material)
+                    self.load_wtp(open_reader(teamcolor_data), material_path, material)
             self.loaded_material_paths.add(material_path)
 
     def load_rsh(self, reader: ChunkReader, material_path: str):
@@ -118,8 +117,6 @@ class WhmLoader:
         current_chunk = reader.read_header('DATAATTR')
         image_format, width, height, num_mips = reader.read_struct('<4l')
         current_chunk = reader.read_header('DATADATA')
-
-        import tempfile
 
         texture_name = pathlib.Path(texture_path).name
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -961,33 +958,33 @@ class WhmLoader:
             mesh_name = reader.read_str()  # -- Read Mesh Name
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
             if mesh_path and mesh_path != pathlib.Path(''):
-                filename = self.root / 'Data' / mesh_path.with_suffix('.whm')
-                if filename.exists():
-                    if filename not in loaded_messages:
-                        loaded_messages.add(filename)
-                        self.messages.append(('INFO', f'Loading {filename}'))
-                    with filename.open('rb') as f:
-                        xreffile = ChunkReader(f)
-                        xreffile.skip_relic_chunky()
-                        chunk = xreffile.read_header('DATAFBIF')  # -- Read 'File Burn Info' Header
-                        xreffile.skip(chunk.size)  # -- Skip 'File Burn Info' Chunk
-                        chunk = xreffile.read_header('FOLDRSGM')	# -- Skip 'Folder SGM' Header
-                        group_name = f'xref_{chunk.name}'
-                        for current_chunk in xreffile.iter_chunks():  # -- Read Chunks Until End Of File
-                            match current_chunk.typeid:
-                                case 'DATASSHR': self.CH_DATASSHR(xreffile)  # -- DATASSHR - Texture Data
-                                case 'DATASKEL': self.CH_DATASKEL(xreffile, xref=True)  # -- FOLDMSLC - Skeleton Data
-                                case 'FOLDMSGR':  # -- Read FOLDMSLC Chunks
-                                    for current_chunk in xreffile.iter_chunks():  # -- Read FOLDMSLC Chunks
-                                        if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
-                                            mesh_obj = self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
-                                            props.setup_property(mesh_obj, 'xref_source', str(mesh_path))
-                                        else:
-                                            xreffile.skip(current_chunk.size)
-                                        if current_chunk.typeid == 'DATABVOL':
-                                            break
-                                # case 'DATAMARK': self.CH_DATAMARK(xreffile)
-                                case _: xreffile.skip(current_chunk.size)
+                filename = mesh_path.with_suffix('.whm')
+                file_data = self.layout.find(filename)
+                if file_data:
+                    if mesh_path not in loaded_messages:
+                        loaded_messages.add(mesh_path)
+                        self.messages.append(('INFO', f'Loading {mesh_path}'))
+                    xreffile = open_reader(file_data)
+                    xreffile.skip_relic_chunky()
+                    chunk = xreffile.read_header('DATAFBIF')  # -- Read 'File Burn Info' Header
+                    xreffile.skip(chunk.size)  # -- Skip 'File Burn Info' Chunk
+                    chunk = xreffile.read_header('FOLDRSGM')	# -- Skip 'Folder SGM' Header
+                    group_name = f'xref_{chunk.name}'
+                    for current_chunk in xreffile.iter_chunks():  # -- Read Chunks Until End Of File
+                        match current_chunk.typeid:
+                            case 'DATASSHR': self.CH_DATASSHR(xreffile)  # -- DATASSHR - Texture Data
+                            case 'DATASKEL': self.CH_DATASKEL(xreffile, xref=True)  # -- FOLDMSLC - Skeleton Data
+                            case 'FOLDMSGR':  # -- Read FOLDMSLC Chunks
+                                for current_chunk in xreffile.iter_chunks():  # -- Read FOLDMSLC Chunks
+                                    if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
+                                        mesh_obj = self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
+                                        props.setup_property(mesh_obj, 'xref_source', str(mesh_path))
+                                    else:
+                                        xreffile.skip(current_chunk.size)
+                                    if current_chunk.typeid == 'DATABVOL':
+                                        break
+                            # case 'DATAMARK': self.CH_DATAMARK(xreffile)
+                            case _: xreffile.skip(current_chunk.size)
                 else:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
             mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
@@ -1054,15 +1051,33 @@ class WhmLoader:
             path = teamcolor.get('LocalInfo', {}).get(f'{k}_name')
             if path is None:
                 continue
-            path = self.root / 'data/art' / f'{k}s' / f'{path}.tga'
-            if not path.exists():
+            path = f'art/{k}s/{path}.tga'
+            data = self.layout.find(path)
+            if not data:
                 self.messages.append(('WARNING', f'Cannot find {k} {path}'))
                 continue
+            if isinstance(data, DirectoryPath):
+                path = data.full_path
             res[k] = path
         return res
 
     def apply_teamcolor(self, teamcolor: dict):
         color_node_names = {f'color_{i}' for i in self.TEAMCOLORABLE_LAYERS}
+        images = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = pathlib.Path(tmpdir)
+            for key in self.TEAMCOLORABLE_IMAGES:
+                if (img_path := teamcolor.get(key)) is None:
+                    continue
+                data_path = pathlib.Path(img_path)
+                if not data_path.exists():
+                    data_path = self.layout.find(data_path)
+                if not data_path:
+                    continue
+                tmpfile = tmpdir / pathlib.Path(img_path).name
+                tmpfile.write_bytes(data_path.read_bytes())
+                images[key] = image = bpy.data.images.load(str(tmpfile))
+                image.pack()
         for mat in bpy.data.materials:
             if mat.node_tree is None:
                 continue
@@ -1073,9 +1088,8 @@ class WhmLoader:
                         continue
                     node.color_ramp.elements[-1].color[:3] = teamcolor[key][:3]
                     continue
-                if node.bl_idname == 'ShaderNodeTexImage' and node.label in self.TEAMCOLORABLE_IMAGES and teamcolor.get(node.label) is not None:
-                        node.image = bpy.data.images.load(str(teamcolor[node.label]))
-                        node.image.pack()
+                if node.bl_idname == 'ShaderNodeTexImage' and node.label in self.TEAMCOLORABLE_IMAGES and images.get(node.label) is not None:
+                    node.image = images[node.label]
 
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
