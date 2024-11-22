@@ -30,12 +30,6 @@ class AddonPreferences(bpy.types.AddonPreferences):
         ) / 'Dawn of War/My_Mod').expanduser()),
     )
 
-    update_animations: bpy.props.BoolProperty(
-        name="Update actions on renames",
-        description='Automatically update all actions on mesh and bone renames',
-        default=True,
-    )
-
     primary_color: bpy.props.FloatVectorProperty(
         name='Primary',
         default=(0.43, 0.08, 0.00),
@@ -191,6 +185,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                             if space.type == 'VIEW_3D':
                                 space.shading.type = 'MATERIAL'
                     operators.init_nameprops()
+                    context.scene.dow_update_animations = True
                 finally:
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)

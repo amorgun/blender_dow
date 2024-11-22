@@ -150,6 +150,7 @@ class DowTools(bpy.types.Panel):
             layout.separator()
             make_prop_row(layout, context.active_pose_bone, 'stale')
         layout.separator()
+        layout.row().prop(context.scene, 'dow_update_animations')
         layout.row().operator(DOW_OT_attach_object.bl_idname)
         layout.row().operator(DOW_OT_detach_object.bl_idname)
 
@@ -201,8 +202,6 @@ def rename_listener(scene, depsgraph):
     if not depsgraph.id_type_updated('OBJECT'):
         return
 
-    update_animations = None
-
     for update in depsgraph.updates:
         if isinstance(update.id, bpy.types.Armature):
             collection = bpy.data.objects
@@ -251,10 +250,7 @@ def rename_listener(scene, depsgraph):
                             rename_props.append((f'["{old_prop_name}"]', f'["{new_prop_name}"]'))
                         props.clear_drivers(obj, old_prop_name)
                         props.setup_drivers(obj, remote_prop_owner, new_prop_name)
-            if update_animations is None:
-                addon_prefs = bpy.context.preferences.addons[__package__].preferences
-                update_animations = addon_prefs.update_animations
-            if not update_animations:
+            if not scene.dow_update_animations:
                 continue
             if not is_renamed:
                 continue
@@ -288,7 +284,12 @@ def register():
         bpy.types.Material,
         bpy.types.PoseBone,
     ]:
-        t.dow_name = bpy.props.StringProperty(name='DoW name')
+        t.dow_name = bpy.props.StringProperty()
+    bpy.types.Scene.dow_update_animations = bpy.props.BoolProperty(
+        name="Update actions on renames",
+        description='Automatically update all actions on mesh and bone renames',
+        default=False,
+    )
     bpy.app.handlers.depsgraph_update_post.append(rename_listener)
     bpy.app.handlers.load_post.append(init_nameprops)
 
@@ -302,6 +303,7 @@ def unregister():
         h for h in bpy.app.handlers.depsgraph_update_post
         if h is not rename_listener
     ]
+    delattr(bpy.types.Scene, 'dow_update_animations')
     for t in [
         bpy.types.Object,
         bpy.types.Material,
