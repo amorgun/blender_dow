@@ -37,10 +37,9 @@ class WhmLoader:
     TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
 
-    def __init__(self, root: pathlib.Path, load_wtp: bool = True, create_cameras: bool = False, stric_mode: bool = True, context=None):
+    def __init__(self, root: pathlib.Path, load_wtp: bool = True, stric_mode: bool = True, context=None):
         self.root = root
         self.wtp_load_enabled = load_wtp
-        self.create_cameras = create_cameras
         self.stric_mode = stric_mode
         self.bpy_context = context
         if self.bpy_context is None:
@@ -58,6 +57,7 @@ class WhmLoader:
         self.created_materials = {}
         self.created_meshes = {}
         self.created_cameras = {}
+        self.animated_cameras = {}
         self.model_root_collection = None
 
         self.armature = bpy.data.armatures.new('Armature')
@@ -492,13 +492,14 @@ class WhmLoader:
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
     def CH_DATACAMS(self, reader: ChunkReader):
-        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
-        bone_collection = self.armature.collections.new('Cameras')
         cameras_collection = bpy.data.collections.new('Cameras')
         self.model_root_collection.children.link(cameras_collection)
 
         coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()
-        rot_180 = mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+        world_rot = (
+            mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+            @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_quaternion()
+        )
         coord_transform_inv = coord_transform.inverted()
 
         num_cams = reader.read_one('<l')
@@ -511,32 +512,63 @@ class WhmLoader:
 
             transform = coord_transform_inv @ mathutils.Matrix.LocRotScale(
                 mathutils.Vector(pos),
-                mathutils.Quaternion([rot[3], *rot[:3]]) @ rot_180,
+                mathutils.Quaternion([rot[3], *rot[:3]]) @ world_rot,
                 None,
             ) @ coord_transform
 
-            bone = self.armature.edit_bones.new(cam_name)
-            bone.head = (0, 0, 0)
-            bone.tail = (0.25, 0, 0)
-            bone_collection.assign(bone)
-            bone.color.palette = 'CUSTOM'
-            bone.color.custom.normal = mathutils.Color([154, 17, 21]) / 255
-            bone.matrix = transform
-            self.bone_orig_transform[cam_name] = transform
+            focus_obj = bpy.data.objects.new(f'{cam_name}_focus', None)
+            cameras_collection.objects.link(focus_obj)
+            focus_obj.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
+            focus_obj.empty_display_type = 'SPHERE'
 
-            if not self.create_cameras:
-                continue
-            empty = bpy.data.objects.new(f'{cam_name}_focus', None)
-            cameras_collection.objects.link(empty)
-            empty.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
-            empty.empty_display_type = 'SPHERE'
-            cam_obj = utils.create_camera(
-                cam_name=cam_name, bone=bone, armature=self.armature_obj,
-                clip_start=clip_start, clip_end=clip_end, fov=fov*2, focus_obj=empty,
-            )
+            cam = bpy.data.cameras.new(cam_name)
+            cam.clip_start, cam.clip_end = clip_start, clip_end
+
+            cam.dof.use_dof = True
+            cam.dof.focus_object = focus_obj
+            cam.lens_unit = 'FOV'
+            cam.angle = 2 * math.pi - 4 * math.atan(math.pi / 9 + 2.14 / fov)  # magic
+
+            cam_obj = bpy.data.objects.new(cam_name, cam)
+            cam_obj.matrix_basis = transform
+
             cameras_collection.objects.link(cam_obj)
+
+            self.bone_orig_transform[cam_name] = cam_obj.matrix_basis
             self.created_cameras[cam_name] = cam_obj
+
+    def attach_camera_to_armature(self, camera_name: str):
+        camera_obj = bpy.data.objects[camera_name]
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+        bone_collection = self.armature.collections.get('Cameras')
+        if bone_collection is None:
+            bone_collection = self.armature.collections.new('Cameras')
+
+        bone = self.armature.edit_bones.new(camera_name)
+        bone.head = (0, 0, 0)
+        bone.tail = (0.25, 0, 0)
+        bone_collection.assign(bone)
+        bone.color.palette = 'CUSTOM'
+        bone.color.custom.normal = mathutils.Color([154, 17, 21]) / 255
+        bone.matrix = camera_obj.matrix_basis
+        bone_name = bone.name
+        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+
+        camera_obj.rotation_mode = 'QUATERNION'
+        for target_type, d in zip(
+            ['LOC_X', 'LOC_Y', 'LOC_Z', 'ROT_W', 'ROT_X', 'ROT_Y', 'ROT_Z'],
+            [
+                *utils.add_driver(camera_obj, 'location', self.armature_obj, '', fallback_value=0),
+                *utils.add_driver(camera_obj, 'rotation_quaternion', self.armature_obj, '', fallback_value=0),
+            ]
+        ):
+            var = d.variables[0]
+            var.type = 'TRANSFORMS'
+            var.targets[0].bone_target = bone_name
+            var.targets[0].transform_type = target_type
+            var.targets[0].rotation_mode = 'QUATERNION'
+
+        return self.armature_obj.pose.bones[bone_name]
 
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
         # ---< DATADATA >---
@@ -674,14 +706,20 @@ class WhmLoader:
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
 
             coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_quaternion()
-            rot_180 = mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+            world_rot = (
+                mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
+                @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_quaternion()
+            )
             coord_transform_inv = coord_transform.inverted()
 
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
             for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
                 if cam_name in self.created_cameras:
-                    bone = self.armature_obj.pose.bones[cam_name]
+                    bone = self.animated_cameras.get(cam_name)
+                    if bone is None:
+                        bone = self.attach_camera_to_armature(cam_name)
+                        self.animated_cameras[cam_name] = bone
                     orig_transform = self.bone_orig_transform[cam_name]
                 cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys (?)
                 for _ in range(cam_pos_keys):
@@ -707,7 +745,7 @@ class WhmLoader:
                     new_transform = (
                         coord_transform_inv
                         @ mathutils.Quaternion([key_rot[3], *key_rot[:3]])
-                        @ rot_180
+                        @ world_rot
                         @ coord_transform
                      )
 
@@ -1040,7 +1078,7 @@ class WhmLoader:
                         node.image.pack()
 
 
-def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None, create_cameras: bool = True):
+def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
     print('------------------')
 
     for action in bpy.data.actions:
@@ -1061,7 +1099,7 @@ def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_p
 
     with target_path.open('rb') as f:
         reader = ChunkReader(f)
-        loader = WhmLoader(module_root, load_wtp=teamcolor_path is not None, create_cameras=create_cameras)
+        loader = WhmLoader(module_root, load_wtp=teamcolor_path is not None)
         try:
             loader.load(reader)
             if teamcolor_path:

@@ -204,6 +204,7 @@ class Exporter:
                     for bone in self.armature_obj.pose.bones:
                         bone.matrix_basis = orig_pose[bone]
                 self.write_marks(writer)
+                self.write_cams(writer)
                 self.write_anims(writer)
         self.messages.append(('INFO', f'Model exported successfully'))
 
@@ -873,6 +874,37 @@ class Exporter:
                         writer.write_struct('<3f', *transform[row_idx][:3])
                     writer.write_struct('<3f', -transform[0][3], transform[1][3], transform[2][3])
                 self.bone_transforms[marker] = marker.matrix_local @ delta.inverted()
+
+    def write_cams(self, writer: ChunkWriter):
+        cameras = [i for i in bpy.data.objects if i.type == 'CAMERA']
+        if not cameras:
+            return
+        with self.start_chunk(writer, ExportFormat.WHM, 'DATACAMS'):
+            if self.format is ExportFormat.WHM:
+                writer.write_struct('<l', len(cameras))
+
+            coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()
+            world_rot_inv = (
+                mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y')
+                @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+            ).inverted().to_quaternion()
+            coord_transform_inv = coord_transform.inverted()
+
+            for camera in cameras:
+                with self.start_chunk(writer, ExportFormat.SGM, 'DATACMRA', name=camera.name):
+                    if self.format is ExportFormat.WHM:
+                        writer.write_str(camera.name)
+                    matrix = coord_transform @ camera.matrix_basis @ coord_transform_inv
+                    loc, rot, _ = matrix.decompose()
+                    rot = rot @ world_rot_inv
+                    writer.write_struct('<3f', *loc)
+                    writer.write_struct('<4f', *rot[1:], rot[0])
+                    fov = 2.14 / (math.tan((2 * math.pi - camera.data.angle) / 4) - math.pi / 9)
+                    writer.write_struct('<3f', fov, camera.data.clip_start, camera.data.clip_end)
+                    if camera.data.dof.use_dof and (focus_obj := camera.data.dof.focus_object) is not None:
+                        writer.write_struct('<3f', -focus_obj.location[0], focus_obj.location[2], -focus_obj.location[1])
+                    else:
+                        writer.write_struct('<3f',  0, 0, 0)
 
     def write_anims(self, writer: ChunkWriter):
         anim_objects = [o for o in bpy.data.objects if o.type == 'ARMATURE' and o.animation_data]

@@ -147,12 +147,6 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         default=False,
     )
 
-    create_cameras: bpy.props.BoolProperty(
-        name='Cameras',
-        description='Create cameras and focus objects',
-        default=False,
-    )
-
     strict_mode: bpy.props.BoolProperty(
         name='Strict',
         description='Fail if the model has format errors',
@@ -171,7 +165,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                 bpy.data.cameras.remove(cam)
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, 'import_whm',
-                  'filepath', 'new_project', 'load_wtp', 'create_cameras', 'strict_mode')
+                  'filepath', 'new_project', 'load_wtp', 'strict_mode')
         if not context.scene.dow_export_filename:
             context.scene.dow_export_filename = pathlib.Path(self.filepath).stem
         with open(self.filepath, 'rb') as f:
@@ -179,7 +173,6 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
             loader = importer.WhmLoader(
                 pathlib.Path(addon_prefs.mod_folder),
                 load_wtp=self.load_wtp,
-                create_cameras=self.create_cameras,
                 stric_mode=self.strict_mode,
                 context=context,
             )
