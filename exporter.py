@@ -856,10 +856,13 @@ class Exporter:
             markers = [b for b in armature.bones if self.is_marker(b)]
         if not markers:
             return
+
+        coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]).to_4x4()
+        coord_transform_inv = coord_transform.inverted()
+
         with self.start_chunk(writer, ExportFormat.WHM, 'DATAMARK'):
             if self.format is ExportFormat.WHM:
                 writer.write_struct('<l', len(markers))
-            delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
             for marker in markers:
                 with self.start_chunk(writer, ExportFormat.SGM, 'DATAMARK', name=marker.name):
                     if self.format is ExportFormat.WHM:
@@ -869,11 +872,13 @@ class Exporter:
                         parent_mat = self.bone_transforms[marker.parent]
                     else:
                         parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
-                    transform = parent_mat.inverted() @ marker.matrix_local @ delta.inverted()
+                    transform = coord_transform @ parent_mat.inverted() @ marker.matrix_local @ coord_transform_inv
+                    loc, rot, _ = transform.decompose()
+                    rot = rot.to_matrix().transposed()
                     for row_idx in range(3):
-                        writer.write_struct('<3f', *transform[row_idx][:3])
-                    writer.write_struct('<3f', -transform[0][3], transform[1][3], transform[2][3])
-                self.bone_transforms[marker] = marker.matrix_local @ delta.inverted()
+                        writer.write_struct('<3f', *rot[row_idx])
+                    writer.write_struct('<3f', *loc)
+                self.bone_transforms[marker] = marker.matrix_local
 
     def write_cams(self, writer: ChunkWriter):
         cameras = [i for i in bpy.data.objects if i.type == 'CAMERA']

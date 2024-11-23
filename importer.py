@@ -456,16 +456,23 @@ class WhmLoader:
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
         bone_collection = self.armature.collections.new('Markers')
 
+        coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]).to_4x4()
+        coord_transform_inv = coord_transform.inverted()
+
         num_markers = reader.read_one('<l')  # -- Read Number Of Markers
         for i in range(num_markers):  # -- Read All Markers
             marker_name = reader.read_str()  # -- Read Marker Name
             parent_name = reader.read_str()  # -- Read Parent Name
-            transform = mathutils.Matrix().to_3x3()
+            rot = mathutils.Matrix().to_3x3()
             for row_idx in range(3):  # -- Read Matrix
-                transform[row_idx][:3] = reader.read_struct('<3f')
-            x, y, z = reader.read_struct('<3f')
+                rot[row_idx][:3] = reader.read_struct('<3f')
+            pos = reader.read_struct('<3f')
 
-            transform = mathutils.Matrix.LocRotScale([-x, y, z], transform, None)
+            transform = coord_transform_inv @ mathutils.Matrix.LocRotScale(
+                mathutils.Vector(pos),
+                rot.transposed(),
+                None,
+            ) @ coord_transform
 
             marker = self.armature.edit_bones.new(marker_name)  # -- Create Bone and Set Name
             marker.head = (0, 0, 0)
@@ -481,11 +488,13 @@ class WhmLoader:
 
             parent = self.armature.edit_bones.get(parent_name)
             if parent is None:
+                if parent_name.strip():
+                    self.messages.append(('WARNING', f'Marker "{marker_name}" is attached to non-existent bone "{parent_name}"'))
                 parent_mat = mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
             else:
                 marker.parent = parent  # -- Set Parent Of New Marker
                 parent_mat = self.bone_transform[parent_name]
-            marker.matrix =  parent_mat @ transform @ mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
+            marker.matrix = parent_mat @ transform
             self.bone_transform[marker_name] = parent_mat @ transform
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
@@ -494,8 +503,7 @@ class WhmLoader:
         for bone in bone_collection.bones:
             pose_bone = self.armature_obj.pose.bones[bone.name]
             pose_bone.custom_shape = custom_shape_template
-            pose_bone.custom_shape_rotation_euler = 0, math.pi / 2, math.pi / 2
-            pose_bone.custom_shape_scale_xyz = 1, 1, -1
+            pose_bone.custom_shape_scale_xyz = -1, 1, 1
 
     def CH_DATACAMS(self, reader: ChunkReader):
         cameras_collection = bpy.data.collections.new('Cameras')
