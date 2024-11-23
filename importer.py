@@ -453,6 +453,7 @@ class WhmLoader:
                     return True
 
     def CH_DATAMARK(self, reader: ChunkReader):
+        self.bpy_context.view_layer.objects.active = self.armature_obj
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
         bone_collection = self.armature.collections.new('Markers')
 
