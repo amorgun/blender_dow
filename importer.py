@@ -501,6 +501,7 @@ class WhmLoader:
 
         custom_shape_template = bpy.data.objects.new(f'marker_custom_shape_template', None)
         custom_shape_template.empty_display_type = 'ARROWS'
+        custom_shape_template.use_fake_user = True
         for bone in bone_collection.bones:
             pose_bone = self.armature_obj.pose.bones[bone.name]
             pose_bone.custom_shape = custom_shape_template
