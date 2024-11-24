@@ -137,6 +137,23 @@ class WhmLoader:
         return image
 
     def CH_FOLDSHDR(self, reader: ChunkReader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
+        current_chunk = reader.read_header('DATAINFO')
+        num_images, *info_bytes = reader.read_struct('<2L 4B L x')
+
+        channels = []
+        for _ in range(6):  # always 6
+            current_chunk = reader.read_header('DATACHAN')
+            channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
+            channel_texture_name = reader.read_str()
+            num_coords = reader.read_one('<4x l 4x')
+            for _ in range(4):  # always 4, not num_coords
+                for ref_idx in range(4):
+                    x, y = reader.read_struct('<2f')
+            channels.append({
+                'idx': channel_idx,
+                'texture_name': channel_texture_name,
+            })
+
         if material_path in self.created_materials:
             return self.created_materials[material_path]
         material_name = pathlib.Path(material_path).name
@@ -147,9 +164,6 @@ class WhmLoader:
         mat.use_nodes = True
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
-
-        current_chunk = reader.read_header('DATAINFO')
-        num_images, *info_bytes = reader.read_struct('<2L 4B L x')
 
         node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')
         node_uv.location = -800, 200
@@ -169,16 +183,10 @@ class WhmLoader:
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
 
         created_tex_nodes = {}
-        for _ in range(num_images):
-            current_chunk = reader.read_header('DATACHAN')
-            channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
-            channel_name = reader.read_str()
-            num_coords = reader.read_one('<4x l 4x')
-            for _ in range(4):  # always 4, not num_coords
-                for ref_idx in range(4):
-                    x, y = reader.read_struct('<2f')
-            if channel_name == '':
+        for channel in channels:
+            if (texture_name := channel['texture_name']) == '':
                 continue
+            channel_idx = channel['idx']
             input_names, node_label = {
                 0: (['Base Color', 'Emission Color'], 'diffuse'),
                 1: (['Specular IOR Level'], 'specularity'),  # FIXME metallic
@@ -186,13 +194,13 @@ class WhmLoader:
                 3: (['Emission Strength'], 'self_illumination'),
                 4: (['Alpha'], 'opacity'),
             }[channel_idx]
-            node_tex = created_tex_nodes.get(channel_name)
+            node_tex = created_tex_nodes.get(texture_name)
             if not node_tex:
                 node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
-                node_tex.image = loaded_textures[channel_name]
+                node_tex.image = loaded_textures[texture_name]
                 node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
-                created_tex_nodes[channel_name] = node_tex
+                created_tex_nodes[texture_name] = node_tex
             links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
             if channel_idx in (0, 4):
                 links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
