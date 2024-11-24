@@ -120,10 +120,18 @@ class WhmLoader:
 
         texture_name = pathlib.Path(texture_path).name
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(f'{tmpdir}/{texture_name}.dds', 'wb') as f: 
-                textures.write_dds(
-                    reader.stream, f, current_chunk.size, width, height, num_mips, image_format)
+            is_tga = image_format in (0, 2)
+            if is_tga:
+                with open(f'{tmpdir}/{texture_name}.tga', 'wb') as f:
+                    textures.write_tga(
+                        reader.stream, f, current_chunk.size, width, height)
+            else:
+                with open(f'{tmpdir}/{texture_name}.dds', 'wb') as f:
+                    textures.write_dds(
+                        reader.stream, f, current_chunk.size, width, height, num_mips, image_format)
             image = bpy.data.images.load(f.name)
+            if is_tga:
+                image = utils.flip_image_y(image)
             image.pack()
             image.use_fake_user = True
         return image
