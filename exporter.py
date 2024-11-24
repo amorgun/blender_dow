@@ -850,8 +850,10 @@ class Exporter:
         if not self.armature_obj:
             return
         armature = self.armature_obj.data
-        if 'Markers' in armature.collections:
-            markers = armature.collections['Markers'].bones
+        for k in ['Markers', 'markers']:
+            if k in armature.collections:
+                markers = armature.collections[k].bones
+                break
         else:
             markers = [b for b in armature.bones if self.is_marker(b)]
         if not markers:

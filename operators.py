@@ -1,4 +1,5 @@
 import bpy
+import mathutils
 
 from . import props
 
@@ -119,6 +120,55 @@ class DOW_OT_detach_object(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class DOW_OT_convert_to_marker(bpy.types.Operator):
+    """Convert the bone to marker"""
+
+    bl_idname = 'object.dow_convert_to_marker'
+    bl_label = 'Convert to marker'
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.selected_editable_bones
+            or context.selected_pose_bones_from_active_object
+        )
+
+
+    def execute(self, context):
+        armature_obj = context.active_object
+        armature = armature_obj.data
+        if context.mode =='POSE':
+            bone_names = [b.name for b in context.selected_pose_bones_from_active_object]
+            bpy.ops.object.mode_set(mode='EDIT')
+            orig_mode = 'POSE'
+        else:
+            bone_names = [b.name for b in context.selected_editable_bones]
+            orig_mode = 'EDIT'
+        custom_shape_template = bpy.data.objects.get('marker_custom_shape_template')
+        bone_collection = armature.collections.get('Markers')
+        for bone_name in bone_names:
+            if custom_shape_template is None:
+                custom_shape_template = bpy.data.objects.new('marker_custom_shape_template', None)
+                custom_shape_template.empty_display_type = 'ARROWS'
+                custom_shape_template.use_fake_user = True
+            if bone_collection is None:
+                bone_collection = armature.collections.new('Markers')
+            bone = armature.edit_bones[bone_name]
+            bone.length = 0.15
+            bone.color.palette = 'CUSTOM'
+            bone.color.custom.normal = mathutils.Color([14, 255, 2]) / 255
+            bone.color.custom.active = mathutils.Color([255, 98, 255]) / 255
+            bone_collection.assign(bone)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        for bone_name in bone_names:
+            pose_bone = armature_obj.pose.bones[bone_name]
+            pose_bone.custom_shape = custom_shape_template
+            pose_bone.custom_shape_scale_xyz = -1, 1, 1
+        bpy.ops.object.mode_set(mode=orig_mode)
+        return {'FINISHED'}
+
+
 class DowTools(bpy.types.Panel):
     bl_label = 'DoW Tools'
     bl_idname = 'VIEW3D_PT_dow_tools'
@@ -151,8 +201,11 @@ class DowTools(bpy.types.Panel):
             make_prop_row(layout, context.active_pose_bone, 'stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
-        layout.row().operator(DOW_OT_attach_object.bl_idname)
-        layout.row().operator(DOW_OT_detach_object.bl_idname)
+        if context.mode == 'OBJECT':
+            layout.row().operator(DOW_OT_attach_object.bl_idname)
+            layout.row().operator(DOW_OT_detach_object.bl_idname)
+        if context.mode in ('POSE', 'EDIT_ARMATURE'):
+            layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
 
 
 class DowMaterialTools(bpy.types.Panel):
@@ -279,6 +332,7 @@ def register():
     bpy.utils.register_class(DOW_OT_setup_property)
     bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
+    bpy.utils.register_class(DOW_OT_convert_to_marker)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -310,6 +364,7 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         delattr(t, 'dow_name')
+    bpy.utils.unregister_class(DOW_OT_convert_to_marker)
     bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_attach_object)
     bpy.utils.unregister_class(DOW_OT_setup_property)

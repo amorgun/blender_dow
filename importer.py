@@ -515,7 +515,7 @@ class WhmLoader:
             self.bone_transform[marker_name] = parent_mat @ transform
         bpy.ops.object.mode_set(mode='EDIT', toggle=True)
 
-        custom_shape_template = bpy.data.objects.new(f'marker_custom_shape_template', None)
+        custom_shape_template = bpy.data.objects.new('marker_custom_shape_template', None)
         custom_shape_template.empty_display_type = 'ARROWS'
         custom_shape_template.use_fake_user = True
         for bone in bone_collection.bones:
