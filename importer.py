@@ -747,18 +747,18 @@ class WhmLoader:
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
             for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
-                if cam_name in self.created_cameras:
-                    bone = self.animated_cameras.get(cam_name)
-                    if bone is None:
-                        bone = self.attach_camera_to_armature(cam_name)
-                        self.animated_cameras[cam_name] = bone
-                    orig_transform = self.bone_orig_transform[cam_name]
+                bone = self.animated_cameras.get(cam_name)
+                orig_transform = self.bone_orig_transform.get(cam_name)
                 cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys (?)
                 for _ in range(cam_pos_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     x, z, y = reader.read_struct('<3f')
                     if cam_name not in self.created_cameras:
                         continue
+                    if bone is None:
+                        bone = self.attach_camera_to_armature(cam_name)
+                        self.animated_cameras[cam_name] = bone
+                        orig_transform = self.bone_orig_transform[cam_name]
                     new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, -y, z]))
 
                     new_mat = orig_transform.inverted() @ new_transform
@@ -767,12 +767,18 @@ class WhmLoader:
                     self.armature_obj.keyframe_insert(data_path=f'pose.bones["{cam_name}"].location', frame=frame, group=bone_name)
 
                 cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys (?)
-                orig_rot = orig_transform.to_quaternion()  # FIXME
+                if orig_transform is not None:
+                    orig_rot = orig_transform.to_quaternion()  # FIXME
                 for _ in range(cam_rot_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_rot = reader.read_struct('<4f')
                     if cam_name not in self.created_cameras:
                         continue
+                    if bone is None:
+                        bone = self.attach_camera_to_armature(cam_name)
+                        self.animated_cameras[cam_name] = bone
+                        orig_transform = self.bone_orig_transform[cam_name]
+                        orig_rot = orig_transform.to_quaternion()  # FIXME
 
                     new_transform = (
                         coord_transform_inv
