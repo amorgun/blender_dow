@@ -78,8 +78,8 @@ class WhmLoader:
         material_path = reader.read_str()  # -- Read Texture Path
 
         if material_path not in self.loaded_material_paths:
-            full_material_path = self.layout.find(f'{material_path}.rsh')
-            material_data = self.layout.find(f'{material_path}.rsh')
+            full_material_path = f'{material_path}.rsh'
+            material_data = self.layout.find(full_material_path)
             if not material_data:
                 self.messages.append(('WARNING', f'Cannot find texture {full_material_path}'))
                 return
