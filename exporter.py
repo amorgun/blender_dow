@@ -614,8 +614,17 @@ class Exporter:
         return True
 
     @classmethod
-    def is_marker(cls, bone):
-        return bone.name.startswith('marker_') or any('marker' in c.name.lower() for c in bone.collections)
+    def is_marker(cls, bone, armature):
+        has_collections = False
+        for k in ['Markers', 'markers']:
+            if k in armature.collections:
+                has_collections = True
+                markers = armature.collections[k].bones
+                if bone.name in markers:
+                    return True
+        if has_collections:
+            return False
+        return bone.name.startswith('marker_')
 
     @classmethod
     def is_camera(cls, bone):
@@ -639,7 +648,7 @@ class Exporter:
                 data = bone_tree
             return data.setdefault(bone, {})
         
-        bones = [b for b in armature.bones if not (self.is_marker(b) or self.is_camera(b))]
+        bones = [b for b in armature.bones if not (self.is_marker(b, armature) or self.is_camera(b))]
         self.exported_bones = bones
         if not self.exported_bones:
             return
@@ -856,12 +865,7 @@ class Exporter:
         if not self.armature_obj:
             return
         armature = self.armature_obj.data
-        for k in ['Markers', 'markers']:
-            if k in armature.collections:
-                markers = armature.collections[k].bones
-                break
-        else:
-            markers = [b for b in armature.bones if self.is_marker(b)]
+        markers = [b for b in armature.bones if self.is_marker(b, armature)]
         if not markers:
             return
 
