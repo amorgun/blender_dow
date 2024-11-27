@@ -696,13 +696,19 @@ class Exporter:
                 many_bones_warn = False
 
                 vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
+                single_bone_name = None
 
-                if len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
+                if obj.parent_type == 'BONE' and obj.parent_bone != '':
+                    single_bone_name = obj.parent_bone
+                elif len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
+                    single_bone_name = vertex_groups[0].name
+                elif len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
                     self.messages.append(('WARNING', f'Mesh "{obj.name}" seems to be not weighted to any bones'))
                     vertex_groups = []
-                if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
-                    assert vertex_groups[0].name in self.bone_to_idx, f'Cannot find bone "{vertex_groups[0].name}" for mesh "{obj.name}"'
-                    single_bone_meshes[obj.name] = self.bone_to_idx[vertex_groups[0].name]
+
+                if single_bone_name is not None:
+                    assert single_bone_name in self.bone_to_idx, f'Cannot find bone "{single_bone_name}" for mesh "{obj.name}"'
+                    single_bone_meshes[obj.name] = self.bone_to_idx[single_bone_name]
                     vertex_groups = []
 
                 xref_source = obj_orig.get('xref_source', '').strip()
