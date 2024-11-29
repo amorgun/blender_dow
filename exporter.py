@@ -1011,7 +1011,7 @@ class Exporter:
                                 loc = mathutils.Vector([fcurve.evaluate(frame) if fcurve is not None else 0
                                                         for fcurve in loc_fcurves])
                                 rot = mathutils.Quaternion([fcurve.evaluate(frame) if fcurve is not None else 0
-                                                            for fcurve in rot_fcurves])
+                                                            for fcurve in rot_fcurves]).normalized()
                                 frame_matrix = mathutils.Matrix.LocRotScale(loc, rot, None)
                                 relative_matrix = parent_mat.inverted() @ bone.matrix_local @ frame_matrix @ delta.inverted()
                                 frame_data.append(relative_matrix.decompose())
@@ -1022,11 +1022,10 @@ class Exporter:
                                 writer.write_struct('<3f', -loc.x, loc.y, loc.z)
 
                             writer.write_struct('<l', len(all_frames))
-                            prev_rot = None
+                            prev_rot = mathutils.Quaternion()
                             for frame, (loc, rot, _) in zip(all_frames, frame_data):
                                 writer.write_struct('<f', frame / max(frame_end, 1))
-                                if prev_rot is not None:
-                                    rot.make_compatible(prev_rot)
+                                rot.make_compatible(prev_rot)
                                 prev_rot = rot
                                 writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
 

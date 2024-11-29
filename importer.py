@@ -645,6 +645,7 @@ class WhmLoader:
             keys_rot = reader.read_one('<l')  # -- Read Number Of Rotation Keys
             orig_rot = self.bone_orig_transform[bone_name].to_quaternion()  # FIXME
             delta = delta.to_quaternion()
+            bone.matrix_basis = mathutils.Matrix()
             for _ in range(keys_rot):
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                 key_rot = reader.read_struct('<4f')  # -- Read Rotation X, Y, Z, W
