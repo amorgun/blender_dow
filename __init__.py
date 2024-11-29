@@ -280,6 +280,12 @@ class ExportModel:
         default='flat',
     )
 
+    use_legacy_marker_orientation: bpy.props.BoolProperty(
+        name='Legacy markers',
+        description='Use legacy marker orientation',
+        default=False,
+    )
+
     FORMAT: exporter.ExportFormat = None
 
     def execute(self, context):
@@ -303,6 +309,7 @@ class ExportModel:
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
                                    max_texture_size=self.max_texture_size,
+                                   use_legacy_marker_orientation=self.use_legacy_marker_orientation,
                                    context=context)
             try:
                 ex.export(writer, object_name=object_name, meta=self.meta)

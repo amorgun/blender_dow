@@ -164,6 +164,7 @@ class Exporter:
             default_texture_path: str = '',
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
+            use_legacy_marker_orientation: bool = False,
             context=None,
         ) -> None:
         self.messages = []
@@ -173,6 +174,7 @@ class Exporter:
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
+        self.use_legacy_marker_orientation = use_legacy_marker_orientation
         self.bpy_context = context if context is not None else bpy.context
 
         self.armature_obj = None
@@ -884,6 +886,14 @@ class Exporter:
                         parent_mat = self.bone_transforms[marker.parent]
                     else:
                         parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                    if self.use_legacy_marker_orientation:
+                        delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
+                        transform = parent_mat.inverted() @ marker.matrix_local @ delta.inverted()
+                        for row_idx in range(3):
+                            writer.write_struct('<3f', *transform[row_idx][:3])
+                        writer.write_struct('<3f', -transform[0][3], transform[1][3], transform[2][3])
+                        self.bone_transforms[marker] = marker.matrix_local @ delta.inverted()
+                        continue
                     transform = coord_transform @ parent_mat.inverted() @ marker.matrix_local @ coord_transform_inv
                     loc, rot, _ = transform.decompose()
                     rot = rot.to_matrix().transposed()
