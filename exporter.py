@@ -1011,7 +1011,9 @@ class Exporter:
                                 loc = mathutils.Vector([fcurve.evaluate(frame) if fcurve is not None else 0
                                                         for fcurve in loc_fcurves])
                                 rot = mathutils.Quaternion([fcurve.evaluate(frame) if fcurve is not None else 0
-                                                            for fcurve in rot_fcurves]).normalized()
+                                                            for fcurve in rot_fcurves])
+                                if rot.magnitude > 0:
+                                    rot.normalize()
                                 frame_matrix = mathutils.Matrix.LocRotScale(loc, rot, None)
                                 relative_matrix = parent_mat.inverted() @ bone.matrix_local @ frame_matrix @ delta.inverted()
                                 frame_data.append(relative_matrix.decompose())
