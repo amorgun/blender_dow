@@ -975,10 +975,6 @@ class WhmLoader:
 
         uv_layer.data.foreach_set('uv', per_loop_list)  # -- Set UVW Coordinates
 
-        #---< WELD VERTICES >---
-
-        obj.modifiers.new('Weld', 'WELD')
-
         if self.blender_mesh_root is None:
             self.blender_mesh_root = bpy.data.collections.new('Meshes')
             self.model_root_collection.children.link(self.blender_mesh_root)
