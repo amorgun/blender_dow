@@ -379,6 +379,17 @@ def export_menu_sgm_func(self, context):
     remember_last_args(op, context, 'export_sgm')
 
 
+class DOW_FH_whm_import(bpy.types.FileHandler):
+    bl_idname = "CURVE_FH_whm_import"
+    bl_label = "File handler for DoW .whm model import"
+    bl_import_operator = "import_model.dow_whm"
+    bl_file_extensions = ".whm"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return (context.area and context.area.type == 'VIEW_3D')
+
+
 def register():
     bpy.utils.register_class(ImportWhm)
     bpy.utils.register_class(ImportTeamcolor)
@@ -391,11 +402,13 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
     bpy.types.Scene.dow_export_filename = bpy.props.StringProperty()
+    bpy.utils.register_class(DOW_FH_whm_import)
     operators.register()
 
 
 def unregister():
     operators.unregister()
+    bpy.utils.unregister_class(DOW_FH_whm_import)
     delattr(bpy.types.Scene, 'dow_export_filename')
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
