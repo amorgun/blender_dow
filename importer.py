@@ -67,12 +67,12 @@ class WhmLoader:
         self.default_image['PLACEHOLDER'] = True
         self.default_image.use_fake_user = True
 
-    def ensure(self, condition: bool, message: str):
+    def ensure(self, condition: bool, message: str, level: str = 'WARNING'):
         if self.stric_mode:
             assert condition, message
             return
         if not condition:
-            self.messages.append(('WARNING', f'Assestion violated: {message}'))
+            self.messages.append((level, f'Assestion violated: {message}'))
 
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
@@ -501,7 +501,7 @@ class WhmLoader:
 
             if marker_name in self.armature.bones:
                 continue  # FIXME
-            self.ensure(marker_name not in self.armature.bones, marker_name)
+            self.ensure(marker_name not in self.armature.bones, f'Marker "{marker_name}": name collision with a bone')
 
             parent = self.armature.edit_bones.get(parent_name)
             if parent is None:
@@ -808,8 +808,8 @@ class WhmLoader:
 
         current_chunk = reader.read_header('DATADATA')
         rsv0_a, flag, num_polygons, rsv0_b = reader.read_struct('<l b l l') # -- skip 13 bytes (unknown)
-        self.ensure(flag == 1, f'{mesh_name}: {flag=}')
-        self.ensure(rsv0_a == 0 and rsv0_b == 0, f'{mesh_name}: {rsv0_a=} {rsv0_b=}')
+        self.ensure(flag == 1, f'Mesh "{mesh_name}": {flag=}', level='INFO')
+        self.ensure(rsv0_a == 0 and rsv0_b == 0, f'Mesh "{mesh_name}": {rsv0_a=} {rsv0_b=}', level='INFO')
         num_skin_bones = reader.read_one('<l')  # -- get number of bones mesh is weighted to
 
         #---< SKIN BONES >---
@@ -817,13 +817,13 @@ class WhmLoader:
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
             bone_idx = reader.read_one('<l')
-            self.ensure(bone_array[bone_idx].name == bone_name, f'"{bone_array[bone_idx].name}" != "{bone_name}"')
+            self.ensure(bone_array[bone_idx].name == bone_name, f'Mesh "{mesh_name}": "{bone_array[bone_idx].name}" != "{bone_name}"')
 
         #---< VERTICES >---
 
         num_vertices = reader.read_one('<l')  # -- read number of vertices
         vertex_size_id = reader.read_one('<l')  # 37 or 39
-        self.ensure((num_skin_bones != 0) * 2 == vertex_size_id - 37, f'{num_skin_bones=} and {vertex_size_id=}')
+        self.ensure((num_skin_bones != 0) * 2 == vertex_size_id - 37, f'Mesh "{mesh_name}": {num_skin_bones=} and {vertex_size_id=}')
 
         vert_array = []       # -- array to store vertex data
         for _ in range(num_vertices):
@@ -866,7 +866,8 @@ class WhmLoader:
             uv_array.append([u, 1 - v])
 
         #-- skip to texture path
-        reader.skip(4)  # -- skip 4 bytes (unknown, zeros)
+        unk_bytes = reader.read_struct('<4B')  # -- skip 4 bytes (unknown, zeros)
+        self.ensure(not any(unk_bytes), f'Mesh "{mesh_name}": unexpected non-zero data: {unk_bytes}', level='INFO')
 
         #---< MATERIALS >---
 
@@ -892,9 +893,12 @@ class WhmLoader:
                     matid_array.append(len(materials) - 1)
                 else:
                     matid_array.append(0)  # Default material
-            reader.skip(8)  # -- Skip 8 Bytes To Next Texture Name Length. 4 data bytes + 4 zeros
+            # -- Skip 8 Bytes To Next Texture Name Length. 4 data bytes + 4 zeros
+            *bytes_data, bytes_zero = reader.read_struct('<4Bl')
+            self.ensure(bytes_zero == 0, f'Mesh "{mesh_name}:{texture_path}" has non-zero flags: {bytes_zero}', level='INFO')
+            # self.messages.append(('INFO', f'Flags "{mesh_name}:{texture_path}": {bytes_data=} {num_materials=} {num_faces=}'))
 
-        self.ensure(num_polygons == len(face_array), f'{mesh_name}: {num_polygons} != {len(face_array)}')
+        self.ensure(num_polygons == len(face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(face_array)}')
 
         #---< SHADOW VOLUME >---
 

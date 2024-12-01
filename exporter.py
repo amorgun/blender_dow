@@ -752,21 +752,21 @@ class Exporter:
                             poly_vertices = []
                             for loop_idx in poly.loops:
                                 orig_vertex_idx = mesh.loops[loop_idx].vertex_index
-                                uv = mesh.uv_layers[0].uv[loop_idx].vector.copy().freeze()
-                                vertex_normal = mesh.corner_normals[loop_idx].vector.copy().freeze()
-                                vertex_key = uv, vertex_normal
-                                seen_vertex_data = seen_data.setdefault(orig_vertex_idx, {})
-                                vertex_idx = seen_vertex_data.get(vertex_key)
+                                uv = mesh.uv_layers[0].uv[loop_idx].vector
+                                vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
+                                vertex = mesh.vertices[orig_vertex_idx]
+                                vertex_pos = obj.matrix_world @ vertex.co
+                                vertex_key = vertex_pos.to_tuple(4), uv.to_tuple(4), vertex_normal.to_tuple(3)
+                                vertex_idx = seen_data.get(vertex_key)
                                 if vertex_idx is None:
                                     vertex_idx = len(extended_vertices)
-                                    seen_vertex_data[vertex_key] = vertex_idx
-                                    vertex = mesh.vertices[orig_vertex_idx]
+                                    seen_data[vertex_key] = vertex_idx
                                     vertex_info = VertexInfo(
-                                        position=obj.matrix_world @ vertex.co,
+                                        position=vertex_pos,
                                         vertex_groups=[g for g in vertex.groups
                                                         if obj.vertex_groups[g.group].name in exported_vertex_groups],
-                                        normal=obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector,
-                                        uv=mesh.uv_layers[0].uv[loop_idx].vector,
+                                        normal=vertex_normal,
+                                        uv=uv,
                                     )
                                     extended_vertices.append(vertex_info)
                                 poly_vertices.append(vertex_idx)
