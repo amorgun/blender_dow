@@ -756,11 +756,12 @@ class Exporter:
                                 vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
                                 vertex = mesh.vertices[orig_vertex_idx]
                                 vertex_pos = obj.matrix_world @ vertex.co
-                                vertex_key = vertex_pos.to_tuple(4), uv.to_tuple(4), vertex_normal.to_tuple(3)
-                                vertex_idx = seen_data.get(vertex_key)
+                                vertex_key = uv.to_tuple(4), vertex_normal.normalized().to_tuple(2)
+                                seen_vertex_data = seen_data.setdefault(orig_vertex_idx, {})
+                                vertex_idx = seen_vertex_data.get(vertex_key)
                                 if vertex_idx is None:
                                     vertex_idx = len(extended_vertices)
-                                    seen_data[vertex_key] = vertex_idx
+                                    seen_vertex_data[vertex_key] = vertex_idx
                                     vertex_info = VertexInfo(
                                         position=vertex_pos,
                                         vertex_groups=[g for g in vertex.groups
