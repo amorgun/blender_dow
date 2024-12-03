@@ -886,17 +886,22 @@ class WhmLoader:
             num_faces = reader.read_one('<l') // 3  # -- faces are given as a number of vertices that makes them - divide by 3
 
             #-- read faces connected with this material
+            mat_faces = []
             for __ in range(num_faces):
                 x, z, y = reader.read_struct('<3H')
-                face_array.append((x, y, z))
+                mat_faces.append((x, y, z))
                 if material:
                     matid_array.append(len(materials) - 1)
                 else:
                     matid_array.append(0)  # Default material
+            face_array.extend(mat_faces)
             # -- Skip 8 Bytes To Next Texture Name Length. 4 data bytes + 4 zeros
-            *bytes_data, bytes_zero = reader.read_struct('<4Bl')
+            data_min_vertex_idx, data_vertex_cnt, bytes_zero = reader.read_struct('<2Hl')
+            real_min_vertex_idx = min((i for t in mat_faces for i in t), default=0)
+            real_vertex_cnt = max((i for t in mat_faces for i in t), default=0) + 1 - real_min_vertex_idx
             self.ensure(bytes_zero == 0, f'Mesh "{mesh_name}:{texture_path}" has non-zero flags: {bytes_zero}', level='INFO')
-            # self.messages.append(('INFO', f'Flags "{mesh_name}:{texture_path}": {bytes_data=} {num_materials=} {num_faces=}'))
+            self.ensure(data_min_vertex_idx == real_min_vertex_idx, f'Mesh "{mesh_name}:{texture_path}" min_vertex_idx: {data_min_vertex_idx} != {real_min_vertex_idx}')
+            self.ensure(data_vertex_cnt == real_vertex_cnt, f'Mesh "{mesh_name}:{texture_path}" vertex_cnt: {data_vertex_cnt} != {real_vertex_cnt}')
 
         self.ensure(num_polygons == len(face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(face_array)}')
 
