@@ -609,7 +609,8 @@ class WhmLoader:
 
         animation_name = current_chunk.name
         num_frames = reader.read_one('<l')  # -- Read Number Of Frames
-        duration = reader.read_one('<f')  # num_frames / 30
+        duration = reader.read_one('<f')  # num_frames / fps
+        fps = num_frames / duration
 
         if animation_name in bpy.data.actions:
             animation = bpy.data.actions[animation_name]
@@ -621,6 +622,7 @@ class WhmLoader:
         self.armature_obj.animation_data.action = animation
 
         animation.frame_range = 0, num_frames - 1  # -- Set Start & End Frames
+        props.setup_property(animation, 'fps', fps)
 
         # ---< BONES >---
 

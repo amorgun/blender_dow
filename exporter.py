@@ -1019,7 +1019,7 @@ class Exporter:
                     frame_end = action.frame_end or max((k.co[0] for fcurve in action.fcurves for k in fcurve.keyframe_points), default=0)
                     with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
                         writer.write_struct('<l', int(frame_end) + 1)
-                        writer.write_struct('<f', (frame_end + 1) / 30)
+                        writer.write_struct('<f', (frame_end + 1) / action.get('fps', 30))
                     bones = [anim_root.pose.bones[b.name] for b in self.exported_bones]
                     bones = sorted(bones, key=lambda x: self.bone_to_idx[x.name])
                     if self.format is ExportFormat.WHM:

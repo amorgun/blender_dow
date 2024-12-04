@@ -43,6 +43,10 @@ ARGS = {
         'default': [1., 1.],
         'description': "Used for animating UV tiling of the material. I haven't seen any examples of it in the real models",
     },
+    (bpy.types.Action, 'fps'): {
+        'default': 30.,
+        'description': "FPS used when this action is exported",
+    }
 }
 
 REMOTE_PROPS = {
