@@ -280,6 +280,18 @@ class ExportModel:
         default='flat',
     )
 
+    vertex_position_merge_threshold: bpy.props.FloatProperty(
+        name='Vertex merging position threshold ',
+        description='Maximum distance between merged vertices. Use 0 to disable proximity merging',
+        default=0, min=0, soft_max=1,
+    )
+
+    vertex_normal_merge_threshold: bpy.props.FloatProperty(
+        name='Vertex merging normal threshold ',
+        description='Maximum corner normal difference between merged vertices',
+        default=0.01, min=0, soft_max=1,
+    )
+
     use_legacy_marker_orientation: bpy.props.BoolProperty(
         name='Legacy markers',
         description='Use legacy marker orientation',
@@ -293,7 +305,9 @@ class ExportModel:
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, f'export_{self.filename_ext[1:]}',
                   'filepath', 'object_name', 'meta', 'convert_textures', 'max_texture_size',
-                  'default_texture_path', 'data_location', 'store_layout')
+                  'default_texture_path', 'data_location', 'store_layout',
+                  'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
+                  )
         filepath = pathlib.Path(self.filepath)
         data_folder = addon_prefs.mod_folder if self.data_location == 'mod_root' else filepath.with_suffix('')
         paths = exporter.FileDispatcher(data_folder, layout={
@@ -309,6 +323,8 @@ class ExportModel:
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
                                    max_texture_size=self.max_texture_size,
+                                   vertex_position_merge_threshold=self.vertex_position_merge_threshold,
+                                   vertex_normal_merge_threshold=self.vertex_normal_merge_threshold,
                                    use_legacy_marker_orientation=self.use_legacy_marker_orientation,
                                    context=context)
             try:

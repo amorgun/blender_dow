@@ -164,6 +164,8 @@ class Exporter:
             default_texture_path: str = '',
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
+            vertex_position_merge_threshold: float = 0,
+            vertex_normal_merge_threshold: float = 0.01,
             use_legacy_marker_orientation: bool = False,
             context=None,
         ) -> None:
@@ -174,6 +176,8 @@ class Exporter:
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
+        self.vertex_position_merge_threshold = vertex_position_merge_threshold
+        self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
         self.use_legacy_marker_orientation = use_legacy_marker_orientation
         self.bpy_context = context if context is not None else bpy.context
 
@@ -691,6 +695,8 @@ class Exporter:
         depsgraph = self.bpy_context.evaluated_depsgraph_get()
         global_min_corner, global_max_corner = mathutils.Vector([float('+inf')]*3), mathutils.Vector([float('-inf')]*3)
         mesh_xrefs = {}
+        orig_num_vertices = 0
+        exported_num_vertices = 0
         with writer.start_chunk('FOLDMSGR'):
             for obj_orig in bpy.data.objects:
                 if obj_orig.type != 'MESH':
@@ -703,6 +709,7 @@ class Exporter:
                     continue
 
                 self.exported_meshes.append(obj.name)
+                orig_num_vertices += len(mesh.vertices)
                 vert_warn = False
                 many_bones_warn = False
 
@@ -746,6 +753,13 @@ class Exporter:
                         extended_polygons = []
                         seen_data = {}
 
+                        if self.vertex_position_merge_threshold > 0:
+                            vertex_kd = mathutils.kdtree.KDTree(len(mesh.vertices))
+                            for i, v in enumerate(mesh.vertices):
+                                vertex_kd.insert(obj.matrix_world @ v.co, i)
+                            vertex_kd.balance()
+                            merged_vertes_idx = {}
+
                         if len(mesh.uv_layers) == 0:
                             self.messages.append(('WARNING', f'Mesh "{obj.name}" has no UV layers.'))
                         uv_layer = mesh.uv_layers.active
@@ -753,16 +767,32 @@ class Exporter:
                             poly_vertices = []
                             for loop_idx in poly.loops:
                                 orig_vertex_idx = mesh.loops[loop_idx].vertex_index
-                                uv = uv_layer.uv[loop_idx].vector
-                                vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
                                 vertex = mesh.vertices[orig_vertex_idx]
                                 vertex_pos = obj.matrix_world @ vertex.co
-                                vertex_key = uv.to_tuple(4), vertex_normal.normalized().to_tuple(2)
-                                seen_vertex_data = seen_data.setdefault(orig_vertex_idx, {})
-                                vertex_idx = seen_vertex_data.get(vertex_key)
+                                if self.vertex_position_merge_threshold > 0:
+                                    for (co, index, dist) in vertex_kd.find_range(vertex_pos, self.vertex_position_merge_threshold):
+                                        if index == orig_vertex_idx:
+                                            continue
+                                        if index in merged_vertes_idx:
+                                            vertex_pos_key = merged_vertes_idx[index]
+                                            break
+                                    else:
+                                        vertex_pos_key = merged_vertes_idx[orig_vertex_idx] = orig_vertex_idx
+                                else:
+                                    vertex_pos_key = orig_vertex_idx
+                                seen_vertex_data = seen_data.setdefault(vertex_pos_key, {})
+                                uv = uv_layer.uv[loop_idx].vector
+                                vertex_uv_key = uv.to_tuple(4)
+                                seen_vetex_normals: list = seen_vertex_data.setdefault(vertex_uv_key, [])
+                                vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
+                                vertex_idx = None
+                                for idx, v in seen_vetex_normals:
+                                    if (v - vertex_normal).length < self.vertex_normal_merge_threshold:
+                                        vertex_idx = idx
+                                        break
                                 if vertex_idx is None:
                                     vertex_idx = len(extended_vertices)
-                                    seen_vertex_data[vertex_key] = vertex_idx
+                                    seen_vetex_normals.append((vertex_idx, vertex_normal))
                                     vertex_info = VertexInfo(
                                         position=vertex_pos,
                                         vertex_groups=[g for g in vertex.groups
@@ -778,6 +808,7 @@ class Exporter:
                         writer.write_struct('<l', 39 if vertex_groups else 37)
                         for v in extended_vertices:
                             writer.write_struct('<3f', -v.position.x, v.position.z, -v.position.y)
+                        exported_num_vertices += len(extended_vertices)
                         if vertex_groups:
                             for v in extended_vertices:
                                 groups = sorted(v.vertex_groups, key=lambda x: -x.weight)
@@ -864,6 +895,11 @@ class Exporter:
                     *(global_max_corner - global_min_corner) / 2,
                     *[i for r in mathutils.Matrix.Identity(3) for i in r]
                 )
+            if exported_num_vertices != orig_num_vertices:
+                self.messages.append((
+                    'INFO',
+                    f'Exported {exported_num_vertices} vertices ({"+" if exported_num_vertices > orig_num_vertices else "-"}{abs(exported_num_vertices - orig_num_vertices) / orig_num_vertices * 100:.2f}%)',
+                ))
 
     def write_marks(self, writer: ChunkWriter):
         if not self.armature_obj:
