@@ -281,13 +281,13 @@ class ExportModel:
     )
 
     vertex_position_merge_threshold: bpy.props.FloatProperty(
-        name='Vertex merging position threshold ',
+        name='Vertex merging position threshold',
         description='Maximum distance between merged vertices. Use 0 to disable proximity merging',
         default=0, min=0, soft_max=1,
     )
 
     vertex_normal_merge_threshold: bpy.props.FloatProperty(
-        name='Vertex merging normal threshold ',
+        name='Vertex merging normal threshold',
         description='Maximum corner normal difference between merged vertices',
         default=0.01, min=0, soft_max=1,
     )
