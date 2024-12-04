@@ -746,13 +746,14 @@ class Exporter:
                         extended_polygons = []
                         seen_data = {}
 
-                        if len(mesh.uv_layers) != 1:
-                            self.messages.append(('WARNING', f'Mesh "{obj.name}" has {len(mesh.uv_layers)} UV layers. It must have exactly 1 UV layer.'))
+                        if len(mesh.uv_layers) == 0:
+                            self.messages.append(('WARNING', f'Mesh "{obj.name}" has no UV layers.'))
+                        uv_layer = mesh.uv_layers.active
                         for poly in mesh.loop_triangles:
                             poly_vertices = []
                             for loop_idx in poly.loops:
                                 orig_vertex_idx = mesh.loops[loop_idx].vertex_index
-                                uv = mesh.uv_layers[0].uv[loop_idx].vector
+                                uv = uv_layer.uv[loop_idx].vector
                                 vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
                                 vertex = mesh.vertices[orig_vertex_idx]
                                 vertex_pos = obj.matrix_world @ vertex.co
