@@ -169,6 +169,95 @@ class DOW_OT_convert_to_marker(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class DOW_OT_select_all_actions(bpy.types.Operator):
+    """Change selection for multiple actions"""
+
+    bl_idname = 'object.dow_select_all_actions'
+    bl_label = 'Select all actions'
+    bl_options = {'REGISTER'}
+
+    status: bpy.props.BoolProperty()
+
+    def execute(self, context):
+        for i in context.popup_operator.actions:
+            i.force_invisible = self.status
+        return {'FINISHED'}
+
+
+class DOW_UL_action_settings(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        row = layout.row()
+        row = row.split(factor=0.02)
+        row.prop(item, 'force_invisible', icon_only=True, text='')
+        row.label(text=item.name)
+
+
+class ActionSettings(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty()
+    force_invisible: bpy.props.BoolProperty()
+
+
+class DOW_OT_configure_invisible(bpy.types.Operator):
+    """Configure force_invisible for multiple animations"""
+
+    bl_idname = 'object.dow_batch_configure_force_invisible'
+    bl_label = 'Batch configure force_invisible'
+    bl_options = {'REGISTER'}
+
+    prop_name: bpy.props.StringProperty()
+    actions: bpy.props.CollectionProperty(type=ActionSettings)
+    selected_index: bpy.props.IntProperty()
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.active_object.type == 'MESH'
+            and props.get_mesh_prop_owner(context.active_object) is not None
+        )
+
+    def execute(self, context):
+        fcurve_data_paths = [f'["{self.prop_name}"]', f"['{self.prop_name}']"]
+        for d in self.actions:
+            if d.name not in bpy.data.actions:
+                continue
+            action = bpy.data.actions.get(d.name)
+            for fcurve in action.fcurves:
+                if fcurve.is_empty:
+                    continue
+                if any(fcurve.data_path == p for p in fcurve_data_paths):
+                    action.fcurves.remove(fcurve)
+            if d.force_invisible:
+                fcurve = action.fcurves.new(fcurve_data_paths[0])
+                fcurve.keyframe_points.insert(0, 1)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        fcurve_data_paths = [f'["{self.prop_name}"]', f"['{self.prop_name}']"]
+        for action in bpy.data.actions:
+            it = self.actions.add()
+            it.name = action.name
+            for fcurve in action.fcurves:
+                if fcurve.is_empty:
+                    continue
+                if any(fcurve.data_path == p for p in fcurve_data_paths):
+                    keyframes = fcurve.keyframe_points
+                    if not keyframes:
+                        continue
+                    it.force_invisible = bool(keyframes[0].co[1])
+                    break
+        return wm.invoke_props_dialog(self, width=500)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.row().label(text='Actions')
+        layout.template_list('DOW_UL_action_settings', '', self, 'actions', self, 'selected_index')
+        row = layout.row()
+        row.context_pointer_set(name='popup_operator', data=self)
+        row.operator(DOW_OT_select_all_actions.bl_idname, text='Deselect All').status=False
+        row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
+
+
 class DowTools(bpy.types.Panel):
     bl_label = 'DoW Tools'
     bl_idname = 'VIEW3D_PT_dow_tools'
@@ -187,13 +276,19 @@ class DowTools(bpy.types.Panel):
                     layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
                 else:
                     for prop in props.REMOTE_PROPS['MESH']:
+                        prop_name = props.create_prop_name(prop, context.active_object.name)
+                        row = layout.row()
                         make_prop_row(
-                            layout,
+                            row,
                             remote_prop_owner,
-                            prop_name=props.create_prop_name(prop, context.active_object.name),
+                            prop_name=prop_name,
                             display_name=prop,
                             driver_obj=context.active_object,
                         )
+                        if prop == 'force_invisible' and prop_name in remote_prop_owner:
+                            op = row.operator(DOW_OT_configure_invisible.bl_idname, text='', icon='OPTIONS')
+                            op.prop_name = prop_name
+
                 make_prop_row(layout, context.active_object, 'xref_source')
         if context.active_pose_bone is not None:
             layout.row().prop(context.active_pose_bone, 'name')
@@ -333,6 +428,10 @@ def register():
     bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
     bpy.utils.register_class(DOW_OT_convert_to_marker)
+    bpy.utils.register_class(DOW_OT_select_all_actions)
+    bpy.utils.register_class(DOW_UL_action_settings)
+    bpy.utils.register_class(ActionSettings)
+    bpy.utils.register_class(DOW_OT_configure_invisible)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -364,6 +463,10 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         delattr(t, 'dow_name')
+    bpy.utils.unregister_class(DOW_OT_configure_invisible)
+    bpy.utils.unregister_class(ActionSettings)
+    bpy.utils.unregister_class(DOW_UL_action_settings)
+    bpy.utils.unregister_class(DOW_OT_select_all_actions)
     bpy.utils.unregister_class(DOW_OT_convert_to_marker)
     bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_attach_object)
