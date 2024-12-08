@@ -11,7 +11,7 @@ from . import importer, exporter, operators
 ADDON_LOCATION = pathlib.Path(__file__).parent
 
 
-class MyPropertyGroup(bpy.types.PropertyGroup):
+class LastCallArgsGroup(bpy.types.PropertyGroup):
     import_whm: bpy.props.StringProperty()
     import_teamcolor: bpy.props.StringProperty()
     export_whm: bpy.props.StringProperty()
@@ -74,7 +74,7 @@ class AddonPreferences(bpy.types.AddonPreferences):
         default=str(ADDON_LOCATION/'default_banner.tga'),
     )
 
-    last_args: bpy.props.PointerProperty(type=MyPropertyGroup)
+    last_args: bpy.props.PointerProperty(type=LastCallArgsGroup)
 
     def draw(self, context):
         mod_folder = pathlib.Path(self.mod_folder)
@@ -418,7 +418,7 @@ def register():
     bpy.utils.register_class(ImportTeamcolor)
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
-    bpy.utils.register_class(MyPropertyGroup)
+    bpy.utils.register_class(LastCallArgsGroup)
     bpy.utils.register_class(AddonPreferences)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
@@ -438,7 +438,7 @@ def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_whm_func)
     bpy.utils.unregister_class(AddonPreferences)
-    bpy.utils.unregister_class(MyPropertyGroup)
+    bpy.utils.unregister_class(LastCallArgsGroup)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
     bpy.utils.unregister_class(ImportTeamcolor)
