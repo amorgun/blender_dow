@@ -106,6 +106,8 @@ def clear_drivers(obj, prop_name: str):
         case 'uv_tiling':
             driver_obj = obj.node_tree
             driver_paths = {('nodes["Mapping"].inputs[3].default_value', i) for i in (0, 1)}
+    if driver_obj.animation_data is None:
+        return
     for d in driver_obj.animation_data.drivers:
         if (d.data_path, d.array_index) in driver_paths:
             driver_obj.driver_remove(d.data_path, d.array_index)
