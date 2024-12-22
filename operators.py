@@ -221,14 +221,7 @@ class DOW_OT_configure_invisible(bpy.types.Operator):
             if d.name not in bpy.data.actions:
                 continue
             action = bpy.data.actions.get(d.name)
-            for fcurve in action.fcurves:
-                if fcurve.is_empty:
-                    continue
-                if any(fcurve.data_path == p for p in fcurve_data_paths):
-                    action.fcurves.remove(fcurve)
-            if d.force_invisible:
-                fcurve = action.fcurves.new(fcurve_data_paths[0])
-                fcurve.keyframe_points.insert(0, 1)
+            set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -237,15 +230,7 @@ class DOW_OT_configure_invisible(bpy.types.Operator):
         for action in bpy.data.actions:
             it = self.actions.add()
             it.name = action.name
-            for fcurve in action.fcurves:
-                if fcurve.is_empty:
-                    continue
-                if any(fcurve.data_path == p for p in fcurve_data_paths):
-                    keyframes = fcurve.keyframe_points
-                    if not keyframes:
-                        continue
-                    it.force_invisible = bool(keyframes[0].co[1])
-                    break
+            it.force_invisible = bool(get_fcurve_flag(action, fcurve_data_paths, default=False))
         return wm.invoke_props_dialog(self, width=500)
 
     def draw(self, context):
@@ -256,6 +241,65 @@ class DOW_OT_configure_invisible(bpy.types.Operator):
         row.context_pointer_set(name='popup_operator', data=self)
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Deselect All').status=False
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
+
+
+def get_current_action(obj):
+    if obj.animation_data is not None and obj.animation_data.action is not None:
+        return obj.animation_data.action
+    return None
+
+
+def get_fcurve_flag(action, data_paths, default):
+    for fcurve in action.fcurves:
+        if fcurve.is_empty:
+            continue
+        if any(fcurve.data_path == p for p in data_paths):
+            return fcurve.keyframe_points[0].co[1]
+    return default
+
+
+def set_fcurve_flag(action, data_paths, value, default):
+    for fcurve in action.fcurves:
+        if fcurve.is_empty:
+            continue
+        if any(fcurve.data_path == p for p in data_paths):
+            action.fcurves.remove(fcurve)
+    if value != default:
+        fcurve = action.fcurves.new(data_paths[0])
+        fcurve.keyframe_points.insert(0, float(value))
+
+
+def get_force_invisible(self):
+    remote_prop_owner = props.get_mesh_prop_owner(self)
+    action = get_current_action(remote_prop_owner)
+    if action is None:
+        return False
+    prop_name = props.create_prop_name('force_invisible', self.name)
+    return bool(get_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], default=False))
+
+
+def set_force_invisible(self, val):
+    remote_prop_owner = props.get_mesh_prop_owner(self)
+    action = get_current_action(remote_prop_owner)
+    if action is None:
+        return
+    prop_name = props.create_prop_name('force_invisible', self.name)
+    set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False)
+    remote_prop_owner[prop_name] = val
+
+
+def get_stale(self):
+    action = get_current_action(bpy.context.active_object)
+    if action is None:
+        return False
+    return bool(get_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], default=False))
+
+
+def set_stale(self, val):
+    action = get_current_action(bpy.context.active_object)
+    if action is None:
+        return
+    set_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], val, default=False)
 
 
 class DowTools(bpy.types.Panel):
@@ -270,30 +314,33 @@ class DowTools(bpy.types.Panel):
         if context.active_object is not None:
             if context.active_object.type == 'MESH':
                 layout.row().prop(context.active_object, 'name')
-                layout.separator()
                 remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
+
+                make_prop_row(layout, context.active_object, 'xref_source')
+                layout.separator()
                 if remote_prop_owner is None:
                     layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
                 else:
-                    for prop in props.REMOTE_PROPS['MESH']:
-                        prop_name = props.create_prop_name(prop, context.active_object.name)
+                    current_action = get_current_action(remote_prop_owner)
+                    if current_action is not None:
+                        layout.row().prop(current_action, 'name', text='Action')
                         row = layout.row()
+                        row.prop(context.active_object, 'dow_force_invisible', text='force_invisible')
+                        op = row.operator(DOW_OT_configure_invisible.bl_idname, text='', icon='OPTIONS')
+                        op.prop_name = props.create_prop_name('force_invisible', context.active_object.name)
                         make_prop_row(
-                            row,
+                            layout.row(),
                             remote_prop_owner,
-                            prop_name=prop_name,
-                            display_name=prop,
+                            prop_name=props.create_prop_name('visibility', context.active_object.name),
+                            display_name='visibility',
                             driver_obj=context.active_object,
                         )
-                        if prop == 'force_invisible' and prop_name in remote_prop_owner:
-                            op = row.operator(DOW_OT_configure_invisible.bl_idname, text='', icon='OPTIONS')
-                            op.prop_name = prop_name
-
-                make_prop_row(layout, context.active_object, 'xref_source')
         if context.active_pose_bone is not None:
             layout.row().prop(context.active_pose_bone, 'name')
-            layout.separator()
-            make_prop_row(layout, context.active_pose_bone, 'stale')
+            current_action = get_current_action(context.active_object)
+            if current_action is not None:
+                layout.row().prop(current_action, 'name', text='Action')
+                layout.row().prop(context.active_pose_bone, 'dow_stale', text='stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
         if context.mode == 'OBJECT':
@@ -438,6 +485,16 @@ def register():
         bpy.types.PoseBone,
     ]:
         t.dow_name = bpy.props.StringProperty()
+    bpy.types.Object.dow_force_invisible = bpy.props.BoolProperty(
+        description=props.ARGS[bpy.types.Object, 'force_invisible']['description'],
+        get=get_force_invisible,
+        set=set_force_invisible,
+    )
+    bpy.types.PoseBone.dow_stale = bpy.props.BoolProperty(
+        description=props.ARGS[bpy.types.PoseBone, 'stale']['description'],
+        get=get_stale,
+        set=set_stale,
+    )
     bpy.types.Scene.dow_update_animations = bpy.props.BoolProperty(
         name="Update actions on renames",
         description='Automatically update all actions on mesh and bone renames',
@@ -457,6 +514,8 @@ def unregister():
         if h is not rename_listener
     ]
     delattr(bpy.types.Scene, 'dow_update_animations')
+    delattr(bpy.types.PoseBone, 'dow_stale')
+    delattr(bpy.types.Object, 'dow_force_invisible')
     for t in [
         bpy.types.Object,
         bpy.types.Material,
