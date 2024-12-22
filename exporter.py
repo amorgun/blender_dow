@@ -1083,7 +1083,9 @@ class Exporter:
                             if bone_obj in anim_sections['stale']:
                                 keyframes = anim_sections['stale'][bone_obj][0].keyframe_points
                                 if len(keyframes) > 1:
-                                    self.messages.append(('WARNING', f'''Found {len(keyframes)} values for "stale" property of bone "{bone_obj.name}" in the action "{action.name}". Only the first one is used.'''))
+                                    vals = {k.co[1] for k in keyframes}
+                                    if len(vals) > 1:
+                                        self.messages.append(('WARNING', f'''Found {len(vals)} values for "stale" property of bone "{bone_obj.name}" in the action "{action.name}". Only the first one is used.'''))
                                 if keyframes[0].co[1]:
                                     stale_flag = 0
                             writer.write_struct('<b', stale_flag)
@@ -1119,7 +1121,9 @@ class Exporter:
                             if force_invisible_fcurves:
                                 keyframes = force_invisible_fcurves[0].keyframe_points
                                 if len(keyframes) > 1:
-                                    self.messages.append(('WARNING', f'''Found {len(keyframes)} values for "force_invisible" property of mesh "{mesh_name}" in the action "{action.name}". Only the first one is used.'''))
+                                    vals = {k.co[1] for k in keyframes}
+                                    if len(vals) > 1:
+                                        self.messages.append(('WARNING', f'''Found {len(vals)} values for "force_invisible" property of mesh "{mesh_name}" in the action "{action.name}". Only the first one is used.'''))
                                 force_invisible = keyframes[0].co[1]
                             writer.write_struct('<f', not force_invisible)
                             for point in keypoints:
