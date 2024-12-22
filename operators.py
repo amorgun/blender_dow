@@ -284,8 +284,8 @@ def get_force_invisible(self):
 
 
 def set_force_invisible(self, val):
-    remote_prop_owner[prop_name] = val
     remote_prop_owner = props.get_mesh_prop_owner(self)
+    remote_prop_owner[prop_name] = val
     action = get_current_action(remote_prop_owner)
     if action is None:
         return
