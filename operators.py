@@ -197,14 +197,14 @@ class ActionSettings(bpy.types.PropertyGroup):
     force_invisible: bpy.props.BoolProperty()
 
 
-class DOW_OT_configure_invisible(bpy.types.Operator):
+class DOW_OT_batch_configure_invisible(bpy.types.Operator):
     """Configure force_invisible for multiple animations"""
 
     bl_idname = 'object.dow_batch_configure_force_invisible'
     bl_label = 'Batch configure force_invisible'
     bl_options = {'REGISTER'}
 
-    prop_name: bpy.props.StringProperty()
+    mesh_name: bpy.props.StringProperty()
     actions: bpy.props.CollectionProperty(type=ActionSettings)
     selected_index: bpy.props.IntProperty()
 
@@ -216,17 +216,22 @@ class DOW_OT_configure_invisible(bpy.types.Operator):
         )
 
     def execute(self, context):
-        fcurve_data_paths = [f'["{self.prop_name}"]', f"['{self.prop_name}']"]
-        for d in self.actions:
-            if d.name not in bpy.data.actions:
+        for obj in context.selected_objects:
+            if obj.type != 'MESH':
                 continue
-            action = bpy.data.actions.get(d.name)
-            set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False)
+            prop_name = props.create_prop_name('force_invisible', obj.name)
+            fcurve_data_paths = [f'["{prop_name}"]', f"['{prop_name}']"]
+            for d in self.actions:
+                if d.name not in bpy.data.actions:
+                    continue
+                action = bpy.data.actions.get(d.name)
+                set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         wm = context.window_manager
-        fcurve_data_paths = [f'["{self.prop_name}"]', f"['{self.prop_name}']"]
+        prop_name = props.create_prop_name('force_invisible', context.active_object.name)
+        fcurve_data_paths = [f'["{prop_name}"]', f"['{prop_name}']"]
         for action in bpy.data.actions:
             it = self.actions.add()
             it.name = action.name
@@ -326,8 +331,8 @@ class DowTools(bpy.types.Panel):
                         layout.row().prop(current_action, 'name', text='Action')
                         row = layout.row()
                         row.prop(context.active_object, 'dow_force_invisible', text='force_invisible')
-                        op = row.operator(DOW_OT_configure_invisible.bl_idname, text='', icon='OPTIONS')
-                        op.prop_name = props.create_prop_name('force_invisible', context.active_object.name)
+                        op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
+                        op.mesh_name = context.active_object.name
                         make_prop_row(
                             layout.row(),
                             remote_prop_owner,
@@ -478,7 +483,7 @@ def register():
     bpy.utils.register_class(DOW_OT_select_all_actions)
     bpy.utils.register_class(DOW_UL_action_settings)
     bpy.utils.register_class(ActionSettings)
-    bpy.utils.register_class(DOW_OT_configure_invisible)
+    bpy.utils.register_class(DOW_OT_batch_configure_invisible)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -522,7 +527,7 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         delattr(t, 'dow_name')
-    bpy.utils.unregister_class(DOW_OT_configure_invisible)
+    bpy.utils.unregister_class(DOW_OT_batch_configure_invisible)
     bpy.utils.unregister_class(ActionSettings)
     bpy.utils.unregister_class(DOW_UL_action_settings)
     bpy.utils.unregister_class(DOW_OT_select_all_actions)
