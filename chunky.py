@@ -48,11 +48,11 @@ class ChunkReader:
         assert len(fields) == 1, 'Need to parse exactly 1 value'
         return fields[0]
     
-    def read_str(self, encoding='utf8'):
+    def read_str(self, encoding='utf8', errors: str = 'strict'):
         str_len = self.read_one('<l')
         if str_len == 0:
             return ''
-        return str(self.read_one(f'<{str_len}s'), encoding)
+        return str(self.read_one(f'<{str_len}s'), encoding, errors=errors)
     
     def skip(self, nbytes: int) -> None:
         self.stream.seek(nbytes, os.SEEK_CUR)
