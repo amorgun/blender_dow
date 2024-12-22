@@ -284,13 +284,13 @@ def get_force_invisible(self):
 
 
 def set_force_invisible(self, val):
+    remote_prop_owner[prop_name] = val
     remote_prop_owner = props.get_mesh_prop_owner(self)
     action = get_current_action(remote_prop_owner)
     if action is None:
         return
     prop_name = props.create_prop_name('force_invisible', self.name)
     set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False)
-    remote_prop_owner[prop_name] = val
 
 
 def get_stale(self):
@@ -301,6 +301,7 @@ def get_stale(self):
 
 
 def set_stale(self, val):
+    self['stale'] = val
     action = get_current_action(bpy.context.active_object)
     if action is None:
         return
