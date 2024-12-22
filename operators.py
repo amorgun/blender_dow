@@ -285,11 +285,11 @@ def get_force_invisible(self):
 
 def set_force_invisible(self, val):
     remote_prop_owner = props.get_mesh_prop_owner(self)
+    prop_name = props.create_prop_name('force_invisible', self.name)
     remote_prop_owner[prop_name] = val
     action = get_current_action(remote_prop_owner)
     if action is None:
         return
-    prop_name = props.create_prop_name('force_invisible', self.name)
     set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False)
 
 
