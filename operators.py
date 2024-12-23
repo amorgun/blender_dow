@@ -187,7 +187,7 @@ class DOW_OT_select_all_actions(bpy.types.Operator):
 class DOW_UL_action_settings(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row()
-        row.prop(item, 'force_invisible', icon_only=True, text=item.name)
+        row.prop(item, 'force_invisible', text=item.name)
 
 
 class ActionSettings(bpy.types.PropertyGroup):
