@@ -51,6 +51,7 @@ class WhmLoader:
         self.bone_array = []
         self.xref_bone_array = []
         self.blender_mesh_root = None
+        self.blender_shadow_mesh_root = None
         self.bone_orig_transform = {}
         self.bone_transform = {}
         self.created_materials = {}
@@ -909,14 +910,25 @@ class WhmLoader:
 
         #---< SHADOW VOLUME >---
 
-        unknown_1 = reader.read_one('<l')  # -- Unknown Data 1, zero is ok
-        reader.skip(unknown_1 * 12)  # -- Skip Unknown Data 1
+        num_shadow_vertices = reader.read_one('<L')  # -- zero is ok
+        shadow_vertices = []
+        for _ in range(num_shadow_vertices):
+            x, z, y = reader.read_struct('<3f')
+            shadow_vertices.append((-x, -y, z))
 
-        unknown_2 = reader.read_one('<l')  # -- Unknown Data 2, zero is ok
-        reader.skip(unknown_2 * 24)  # -- Skip Unknown Data 2
+        num_shadow_faces = reader.read_one('<L')  # -- zero is ok
+        shadow_faces = []
+        shadow_face_normals = []
+        for _ in range(num_shadow_faces):
+            norm_x, norm_z, norm_y, x, z, y = reader.read_struct('<3f3L')
+            shadow_faces.append((x, y, z))
+            shadow_face_normals.append((-norm_x, -norm_y, norm_z))
 
-        unknown_3 = reader.read_one('<l')  # -- Unknown Data 3, zero is ok
-        reader.skip(unknown_3 * 40)  # -- Skip Unknown Data 3
+        num_shadow_edges = reader.read_one('<L')  # -- zero is ok
+        shadow_edges = []
+        for _ in range(num_shadow_edges):
+            # vert1, vert2, face1, face2, vert_pos1, vert_pos2
+            shadow_edges.append(reader.read_struct('<4L6f'))
 
         #---< DATABVOL CHUNK >---
 
@@ -995,9 +1007,28 @@ class WhmLoader:
                 extra_collection = bpy.data.collections.new(group_name)
                 self.model_root_collection.children.link(extra_collection)
             extra_collection.objects.link(obj)
-        armature_mod = obj.modifiers.new('Skeleton', "ARMATURE")
+        armature_mod = obj.modifiers.new('Skeleton', 'ARMATURE')
         armature_mod.object = self.armature_obj
         self.blender_mesh_root.objects.link(obj)
+
+        if shadow_faces:
+            shadow_mesh_name = f'{mesh_name}_shadow'
+            shadow_mesh = bpy.data.meshes.new(shadow_mesh_name)
+            shadow_mesh.from_pydata(shadow_vertices, [i[:2] for i in shadow_edges], shadow_faces)
+            for face, expected_normal in zip(shadow_mesh.polygons, shadow_face_normals):
+                if face.normal.dot(expected_normal) < 0:
+                    face.flip()
+
+            shadow_obj = bpy.data.objects.new(shadow_mesh_name, shadow_mesh)
+            if self.blender_shadow_mesh_root is None:
+                self.blender_shadow_mesh_root = bpy.data.collections.new('Shadows')
+                self.model_root_collection.children.link(self.blender_shadow_mesh_root)
+                layer_collection = bpy.context.view_layer.layer_collection.children[self.model_root_collection.name].children['Shadows']
+                layer_collection.hide_viewport = True
+            shadow_armature_mod = shadow_obj.modifiers.new('Skeleton', 'ARMATURE')
+            shadow_armature_mod.object = self.armature_obj
+            self.blender_shadow_mesh_root.objects.link(shadow_obj)
+            obj.dow_shadow_mesh = shadow_obj
         return obj
 
     def CH_DATADATA(self, reader: ChunkReader):  # - Chunk Handler - Sub Chunk Of FOLDMSGR - Mesh List
@@ -1039,14 +1070,12 @@ class WhmLoader:
             mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
             if mesh_parent_idx != -1:
                 mesh = self.created_meshes[mesh_name.lower()]
-                vertex_group = mesh.vertex_groups.new(name=self.bone_array[mesh_parent_idx].name)
-                vertex_group.add(list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
-            # if mesh_parent != -1 then
-                # mesh = getNodeByName mesh_name exact:true													-- Get Mesh Node From The Scene
-                # if mesh == created_bones_array[mesh_parent+1] then setUserProp mesh "ForceSkinning" "Yes"	-- Set Force Skinning If Parent Is The Same As Mesh
-                # else mesh.parent = created_bones_array[mesh_parent+1]										-- Else Set New Parent
-
-            # --print (mesh_name as string + " -|- " + mesh_path as string + " -|- " + mesh_parent as string)
+                bone_name = self.bone_array[mesh_parent_idx].name
+                mesh.vertex_groups.new(name=bone_name).add(
+                    list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
+                if (shadow_mesh := mesh.dow_shadow_mesh) is not None:
+                    shadow_mesh.vertex_groups.new(name=bone_name).add(
+                        list(range(len(shadow_mesh.data.vertices))), 1.0, 'REPLACE')
     
     def load(self, reader: ChunkReader):
         self._reset()

@@ -697,6 +697,7 @@ class Exporter:
         mesh_xrefs = {}
         orig_num_vertices = 0
         exported_num_vertices = 0
+        shadow_mesh_objs = {o.dow_shadow_mesh for o in bpy.data.objects if o.type == 'MESH' and o.dow_shadow_mesh is not None}
         with writer.start_chunk('FOLDMSGR'):
             for obj_orig in bpy.data.objects:
                 if obj_orig.type != 'MESH':
@@ -705,7 +706,8 @@ class Exporter:
                 obj = obj_orig.evaluated_get(depsgraph)
                 mesh = obj.data
                 if len(mesh.materials) == 0:
-                    self.messages.append(('WARNING', f'Skipping mesh {obj.name} because it has no materials'))
+                    if obj_orig not in shadow_mesh_objs:
+                        self.messages.append(('WARNING', f'Skipping mesh {obj.name} because it has no materials'))
                     continue
 
                 self.exported_meshes.append(obj.name)
@@ -714,13 +716,11 @@ class Exporter:
                 many_bones_warn = False
 
                 vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
-                single_bone_name = None
+                single_bone_name = utils.get_single_bone_name(obj, self.bone_to_idx)
 
-                if obj.parent_type == 'BONE' and obj.parent_bone != '':
-                    single_bone_name = obj.parent_bone
-                elif len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in mesh.vertices):
-                    single_bone_name = vertex_groups[0].name
-                elif len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices):
+                if single_bone_name is None and (
+                    len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices)
+                ):
                     self.messages.append(('WARNING', f'Mesh "{obj.name}" seems to be not weighted to any bones'))
                     vertex_groups = []
 
@@ -862,7 +862,41 @@ class Exporter:
                             if self.format is ExportFormat.WHM:
                                 writer.write_struct('<4x')
                         if self.format is ExportFormat.WHM:
-                            writer.write_struct('<lll', 0, 0, 0)  # SHADOW VOLUME
+                            # SHADOW VOLUME
+                            if obj_orig.dow_shadow_mesh is None:
+                                writer.write_struct('<3L', 0, 0, 0)
+                            else:
+                                shadow_obj = obj_orig.dow_shadow_mesh.evaluated_get(depsgraph)
+                                shadow_mesh = shadow_obj.data
+                                writer.write_struct('<L', len(shadow_mesh.vertices))
+                                for v in shadow_mesh.vertices:
+                                    writer.write_struct('<3f', -v.co.x, v.co.z, -v.co.y)
+                                writer.write_struct('<L', len(shadow_mesh.loop_triangles))
+                                shadow_edge_data = {}
+                                for p_idx, p in enumerate(shadow_mesh.loop_triangles):
+                                    writer.write_struct(
+                                        '<3f3L', -p.normal.x, p.normal.z, -p.normal.y,
+                                        p.vertices[0], p.vertices[2], p.vertices[1],
+                                    )
+                                    for l_idx in p.loops:
+                                        loop = shadow_mesh.loops[l_idx]
+                                        edge_data = shadow_edge_data.get(loop.edge_index)
+                                        if edge_data is not None:
+                                            edge_data[0] = min(edge_data[0], p_idx)
+                                            edge_data[1] = max(edge_data[1], p_idx)
+                                        else:
+                                            shadow_edge_data[loop.edge_index] = [p_idx, p_idx]
+                                writer.write_struct('<L', len(shadow_mesh.edges))
+                                for e in shadow_mesh.edges:
+                                    edge_data = shadow_edge_data[e.index]
+                                    vertices = min(e.vertices), max(e.vertices)
+                                    v1, v2 = shadow_mesh.vertices[vertices[0]], shadow_mesh.vertices[vertices[1]]
+                                    writer.write_struct(
+                                        '<4L6f',
+                                        vertices[0], vertices[1],
+                                        edge_data[0], edge_data[1],
+                                        -v1.co.x, v1.co.z, -v1.co.y, -v2.co.x, v2.co.z, -v2.co.y,
+                                    )
                     with writer.start_chunk('DATABVOL'):
                         min_corner = mathutils.Vector([
                             min(-v.co.x for v in mesh.vertices),

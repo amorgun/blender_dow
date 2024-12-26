@@ -425,6 +425,11 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
     bpy.types.Scene.dow_export_filename = bpy.props.StringProperty()
+    bpy.types.Object.dow_shadow_mesh = bpy.props.PointerProperty(
+        type=bpy.types.Object,
+        name='shadow',
+        description='Shape used to cast shadows',
+    )
     bpy.utils.register_class(DOW_FH_whm_import)
     operators.register()
 
@@ -432,7 +437,8 @@ def register():
 def unregister():
     operators.unregister()
     bpy.utils.unregister_class(DOW_FH_whm_import)
-    delattr(bpy.types.Scene, 'dow_export_filename')
+    del bpy.types.Object.dow_shadow_mesh
+    del bpy.types.Scene.dow_export_filename
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)

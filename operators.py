@@ -1,7 +1,7 @@
 import bpy
 import mathutils
 
-from . import props
+from . import props, utils
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -120,6 +120,51 @@ class DOW_OT_detach_object(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def can_have_shadow(obj):
+    for m in obj.modifiers:
+        if m.type == 'ARMATURE' and m.object is not None:
+            bone_names = {b.name for b in m.object.data.bones}
+            break
+    else:
+        bone_names = set()
+    return utils.get_single_bone_name(obj, bone_names) is not None or len(bone_names) == 0
+
+
+class DOW_OT_create_shadow(bpy.types.Operator):
+    """Create a shadow mesh for the selected object"""
+
+    bl_idname = 'object.dow_create_shadow'
+    bl_label = 'Create shadow'
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            o.type == 'MESH' and can_have_shadow(o)
+            for o in context.selected_objects
+        )
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type != 'MESH' or not can_have_shadow(obj):
+                continue
+            data = obj.data.copy()
+            data.materials.clear()
+            shadow_obj = bpy.data.objects.new(f'{obj.name}_shadow', data)
+            shadow_obj.parent = obj.parent
+            shadow_obj.parent_type = obj.parent_type
+            shadow_obj.parent_bone = obj.parent_bone
+            for m in obj.modifiers:
+                if m.type == 'ARMATURE':
+                    armature_mod = shadow_obj.modifiers.new('Skeleton', 'ARMATURE')
+                    armature_mod.object = m.object
+                    break
+            shadow_obj.modifiers.new('Weld', 'WELD')
+            context.scene.collection.objects.link(shadow_obj)
+            obj.dow_shadow_mesh = shadow_obj
+        return {'FINISHED'}
+
+
 class DOW_OT_convert_to_marker(bpy.types.Operator):
     """Convert the bone to marker"""
 
@@ -133,7 +178,6 @@ class DOW_OT_convert_to_marker(bpy.types.Operator):
             context.selected_editable_bones
             or context.selected_pose_bones_from_active_object
         )
-
 
     def execute(self, context):
         armature_obj = context.active_object
@@ -321,6 +365,10 @@ class DowTools(bpy.types.Panel):
                 remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
 
                 make_prop_row(layout, context.active_object, 'xref_source')
+                if can_have_shadow(context.active_object):
+                    layout.row().prop(context.active_object, 'dow_shadow_mesh')
+                else:
+                    layout.row().label(text='Cannot have a shadow', icon='ERROR')
                 layout.separator()
                 if remote_prop_owner is None:
                     layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
@@ -329,7 +377,7 @@ class DowTools(bpy.types.Panel):
                     if current_action is not None:
                         layout.row().prop(current_action, 'name', text='Action')
                         row = layout.row()
-                        row.prop(context.active_object, 'dow_force_invisible', text='force_invisible')
+                        row.prop(context.active_object, 'dow_force_invisible')
                         op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
                         op.mesh_name = context.active_object.name
                         make_prop_row(
@@ -344,12 +392,13 @@ class DowTools(bpy.types.Panel):
             current_action = get_current_action(context.active_object)
             if current_action is not None:
                 layout.row().prop(current_action, 'name', text='Action')
-                layout.row().prop(context.active_pose_bone, 'dow_stale', text='stale')
+                layout.row().prop(context.active_pose_bone, 'dow_stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
         if context.mode == 'OBJECT':
             layout.row().operator(DOW_OT_attach_object.bl_idname)
             layout.row().operator(DOW_OT_detach_object.bl_idname)
+            layout.row().operator(DOW_OT_create_shadow.bl_idname)
         if context.mode in ('POSE', 'EDIT_ARMATURE'):
             layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
 
@@ -434,7 +483,7 @@ def rename_listener(scene, depsgraph):
             obj.dow_name = obj.name
             is_renamed = True
             if old_name in collection:
-                is_renamed = False # Object copied
+                is_renamed = False  # Object copied
             rename_props = []
             if obj_type == 'ARMATURE' and is_renamed:
                 rename_props.append((f'bones["{old_name}"]', f'bones["{obj.name}"]'))
@@ -478,6 +527,7 @@ def register():
     bpy.utils.register_class(DOW_OT_setup_property)
     bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
+    bpy.utils.register_class(DOW_OT_create_shadow)
     bpy.utils.register_class(DOW_OT_convert_to_marker)
     bpy.utils.register_class(DOW_OT_select_all_actions)
     bpy.utils.register_class(DOW_UL_action_settings)
@@ -490,17 +540,19 @@ def register():
     ]:
         t.dow_name = bpy.props.StringProperty()
     bpy.types.Object.dow_force_invisible = bpy.props.BoolProperty(
+        name='force_invisible',
         description=props.ARGS[bpy.types.Object, 'force_invisible']['description'],
         get=get_force_invisible,
         set=set_force_invisible,
     )
     bpy.types.PoseBone.dow_stale = bpy.props.BoolProperty(
+        name='stale',
         description=props.ARGS[bpy.types.PoseBone, 'stale']['description'],
         get=get_stale,
         set=set_stale,
     )
     bpy.types.Scene.dow_update_animations = bpy.props.BoolProperty(
-        name="Update actions on renames",
+        name='Update actions on renames',
         description='Automatically update all actions on mesh and bone renames',
         default=False,
     )
@@ -517,20 +569,21 @@ def unregister():
         h for h in bpy.app.handlers.depsgraph_update_post
         if h is not rename_listener
     ]
-    delattr(bpy.types.Scene, 'dow_update_animations')
-    delattr(bpy.types.PoseBone, 'dow_stale')
-    delattr(bpy.types.Object, 'dow_force_invisible')
+    del bpy.types.Scene.dow_update_animations
+    del bpy.types.PoseBone.dow_stale
+    del bpy.types.Object.dow_force_invisible
     for t in [
         bpy.types.Object,
         bpy.types.Material,
         bpy.types.PoseBone,
     ]:
-        delattr(t, 'dow_name')
+        del t.dow_name
     bpy.utils.unregister_class(DOW_OT_batch_configure_invisible)
     bpy.utils.unregister_class(ActionSettings)
     bpy.utils.unregister_class(DOW_UL_action_settings)
     bpy.utils.unregister_class(DOW_OT_select_all_actions)
     bpy.utils.unregister_class(DOW_OT_convert_to_marker)
+    bpy.utils.unregister_class(DOW_OT_create_shadow)
     bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_attach_object)
     bpy.utils.unregister_class(DOW_OT_setup_property)
@@ -538,5 +591,5 @@ def unregister():
     bpy.utils.unregister_class(DowTools)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     register()

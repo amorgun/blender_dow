@@ -77,3 +77,15 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
         var.targets[0].use_fallback_value = True
         var.targets[0].fallback_value = fallback_value
     return drivers
+
+
+def get_single_bone_name(obj, vertex_group_whitelist=None) -> str:
+    if obj.parent_type == 'BONE' and obj.parent_bone != '':
+        return obj.parent_bone
+    if vertex_group_whitelist is not None:
+        vertex_groups = [v for v in obj.vertex_groups if v.name in vertex_group_whitelist]
+    else:
+        vertex_groups = obj.vertex_groups
+    if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in obj.data.vertices):
+        return vertex_groups[0].name
+    return None
