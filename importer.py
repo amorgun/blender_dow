@@ -74,6 +74,7 @@ class WhmLoader:
             return
         if not condition:
             self.messages.append((level, f'Assestion violated: {message}'))
+        return condition
 
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
@@ -819,7 +820,12 @@ class WhmLoader:
 
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
-            bone_idx = reader.read_one('<l')
+            bone_idx = reader.read_one('<L')
+            if not self.ensure(
+                bone_idx < len(bone_array),
+                f'Mesh "{mesh_name}": bone index {bone_idx} is out of range ({len(bone_array) - 1})',
+            ):
+                continue
             self.ensure(bone_array[bone_idx].name == bone_name, f'Mesh "{mesh_name}": "{bone_array[bone_idx].name}" != "{bone_name}"')
 
         #---< VERTICES >---
@@ -837,6 +843,7 @@ class WhmLoader:
 
         skin_vert_array = []  # -- array to store skin vertices
         if num_skin_bones:
+            skin_data_warn = False
             for _ in range(num_vertices):
                 skin_vert = SkinVertice()  # -- Reset Structure
                 skin_vert.weights[:3] = reader.read_struct('<3f')  # -- Read 1st, 2nd and 3rd Bone Weight
@@ -846,6 +853,12 @@ class WhmLoader:
                 for bone_slot in range(4):
                     bone_idx = reader.read_one('<B')
                     if bone_idx == 255:
+                        skin_vert.bone[bone_slot] = None
+                        continue
+                    if bone_idx >= len(bone_array):
+                        if not skin_data_warn:
+                            self.messages.append(('WARNING', f'Mesh "{mesh_name}": bone index {bone_idx} (slot {bone_slot}) is out of range ({len(bone_array) - 1})'))
+                            skin_data_warn = True
                         skin_vert.bone[bone_slot] = None
                         continue
                     skin_vert.bone[bone_slot] = bone_array[bone_idx].name
