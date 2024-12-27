@@ -127,7 +127,8 @@ def can_have_shadow(obj):
             break
     else:
         bone_names = set()
-    return utils.get_single_bone_name(obj, bone_names) is not None or len(bone_names) == 0
+    vertex_groups = utils.get_weighted_vertex_groups(obj)
+    return utils.get_single_bone_name(obj, vertex_groups, bone_names) is not None or len(vertex_groups) == 0
 
 
 class DOW_OT_create_shadow(bpy.types.Operator):

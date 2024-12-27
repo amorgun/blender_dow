@@ -79,13 +79,22 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
     return drivers
 
 
-def get_single_bone_name(obj, vertex_group_whitelist=None) -> str:
+def get_weighted_vertex_groups(obj):
+    used_groups = {g.group for v in obj.data.vertices for g in v.groups if g.weight > 0.001}
+    if obj.name == 'Listening_Post_Nub_L':
+        import builtins
+        builtins.print(used_groups)
+        for v in obj.data.vertices:
+            for g in v.groups:
+                if g.weight > 0.001:
+                    builtins.print(g.group, g.weight)
+    return [v for v in obj.vertex_groups if v.index in used_groups]
+
+
+def get_single_bone_name(obj, vertex_groups, vertex_group_whitelist) -> str:
     if obj.parent_type == 'BONE' and obj.parent_bone != '':
         return obj.parent_bone
-    if vertex_group_whitelist is not None:
-        vertex_groups = [v for v in obj.vertex_groups if v.name in vertex_group_whitelist]
-    else:
-        vertex_groups = obj.vertex_groups
-    if len(vertex_groups) == 1 and all(len(v.groups) == 1 and v.groups[0].weight > 0.995 for v in obj.data.vertices):
+    vertex_groups = [v for v in vertex_groups if v.name in vertex_group_whitelist]
+    if len(vertex_groups) == 1 and all(len(v.groups) >= 1 and v.groups[0].weight > 0.995 for v in obj.data.vertices):
         return vertex_groups[0].name
     return None

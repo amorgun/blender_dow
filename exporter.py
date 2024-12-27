@@ -715,8 +715,9 @@ class Exporter:
                 vert_warn = False
                 many_bones_warn = False
 
-                vertex_groups = [v for v in obj.vertex_groups if v.name in self.bone_to_idx]
-                single_bone_name = utils.get_single_bone_name(obj, self.bone_to_idx)
+                vertex_groups = utils.get_weighted_vertex_groups(obj)
+                vertex_groups = [v for v in vertex_groups if v.name in self.bone_to_idx]
+                single_bone_name = utils.get_single_bone_name(obj, vertex_groups, self.bone_to_idx)
 
                 if single_bone_name is None and (
                     len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices)
@@ -864,6 +865,9 @@ class Exporter:
                         if self.format is ExportFormat.WHM:
                             # SHADOW VOLUME
                             if obj_orig.dow_shadow_mesh is None:
+                                writer.write_struct('<3L', 0, 0, 0)
+                            elif single_bone_name is None and len(vertex_groups) > 0:
+                                self.messages.append(('WARNING', f'Mesh {obj.name} has a shadow but is attached to more than 1 bone. The shadow is not exported'))
                                 writer.write_struct('<3L', 0, 0, 0)
                             else:
                                 shadow_obj = obj_orig.dow_shadow_mesh.evaluated_get(depsgraph)
