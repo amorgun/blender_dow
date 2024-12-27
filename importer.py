@@ -102,7 +102,7 @@ class WhmLoader:
         material = None
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
-                case 'FOLDTXTR': loaded_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
+                case 'FOLDTXTR': loaded_textures[current_chunk.name.lower()] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
                 case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, material_path, loaded_textures)
                 case _: reader.skip(current_chunk.size)
         return material
@@ -187,7 +187,7 @@ class WhmLoader:
 
         created_tex_nodes = {}
         for channel in channels:
-            if (texture_name := channel['texture_name']) == '':
+            if (texture_name := channel['texture_name'].lower()) == '':
                 continue
             channel_idx = channel['idx']
             input_names, node_label = {
