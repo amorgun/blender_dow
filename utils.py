@@ -88,6 +88,12 @@ def get_single_bone_name(obj, vertex_groups, vertex_group_whitelist) -> str:
     if obj.parent_type == 'BONE' and obj.parent_bone != '':
         return obj.parent_bone
     vertex_groups = [v for v in vertex_groups if v.name in vertex_group_whitelist]
-    if len(vertex_groups) == 1 and all(len(v.groups) >= 1 and v.groups[0].weight > 0.995 for v in obj.data.vertices):
-        return vertex_groups[0].name
-    return None
+    if len(vertex_groups) > 1:
+        return None
+    for v in obj.data.vertices:
+        if len(v.groups) == 0:
+            return None
+        max_veight = max(g.weight for g in v.groups)
+        if max_veight < 0.997:
+            return None
+    return vertex_groups[0].name
