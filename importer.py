@@ -167,7 +167,7 @@ class WhmLoader:
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
 
-        node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')
+        node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')  # TODO change to TextureCoordinates and use reflection
         node_uv.location = -800, 200
         node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
         node_uv_offset.label = 'UV offset'
@@ -180,6 +180,7 @@ class WhmLoader:
         node_calc_alpha = mat.node_tree.nodes.new('ShaderNodeMath')
         node_calc_alpha.operation = 'MULTIPLY'
         node_calc_alpha.use_clamp = True
+        node_calc_alpha.inputs[1].default_value = 1
         node_calc_alpha.location = -150, 400
         links.new(node_object_info.outputs['Alpha'], node_calc_alpha.inputs[0])
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
@@ -199,7 +200,11 @@ class WhmLoader:
             node_tex = created_tex_nodes.get(texture_name)
             if not node_tex:
                 node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
-                node_tex.image = loaded_textures[texture_name]
+                node_image = loaded_textures.get(texture_name)
+                if node_image is None:
+                    self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label} texture ("{texture_name}")'))
+                    continue
+                node_tex.image = node_image
                 node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
                 created_tex_nodes[texture_name] = node_tex
@@ -825,6 +830,7 @@ class WhmLoader:
                 bone_idx < len(bone_array),
                 f'Mesh "{mesh_name}": bone index {bone_idx} is out of range ({len(bone_array) - 1})',
             ):
+                # TODO make translation idx -> name -> correct_bone_idx
                 continue
             self.ensure(bone_array[bone_idx].name == bone_name, f'Mesh "{mesh_name}": "{bone_array[bone_idx].name}" != "{bone_name}"')
 
