@@ -83,7 +83,7 @@ class WhmLoader:
             full_material_path = f'{material_path}.rsh'
             material_data = self.layout.find(full_material_path)
             if not material_data:
-                self.messages.append(('WARNING', f'Cannot find texture {full_material_path}'))
+                self.messages.append(('WARNING', f'Cannot find material file "{full_material_path}"'))
                 return
             material = self.load_rsh(open_reader(material_data), material_path)  # -- create new material
             if self.wtp_load_enabled:
@@ -722,7 +722,7 @@ class WhmLoader:
                         prop_name = props.create_prop_name('uv_tiling', material.name)
                         props.setup_property(self.armature_obj, prop_name, [1., 1.])
                 else:
-                    self.messages.append(('WARNING', f'Cannot find material {obj_name}'))
+                    self.messages.append(('WARNING', f'Cannot find loaded material "{obj_name}"'))
                 for j in range(keys_tex):  # -- Read Texture Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_tex = reader.read_one('<f')
