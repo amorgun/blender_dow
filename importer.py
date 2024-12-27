@@ -167,21 +167,29 @@ class WhmLoader:
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
 
-        node_uv = mat.node_tree.nodes.new('ShaderNodeUVMap')  # TODO change to TextureCoordinates and use reflection
+        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
         node_uv.location = -800, 200
         node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
         node_uv_offset.label = 'UV offset'
         node_uv_offset.location = -600, 200
-        links.new(node_uv.outputs[0], node_uv_offset.inputs['Vector'])
+        links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
 
         node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
         node_object_info.location = -600, 400
+
+        node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
+        node_calc_spec.data_type = 'RGBA'
+        node_calc_spec.clamp_result = True
+        node_calc_spec.inputs[0].default_value = 0
+        node_calc_spec.label = 'Apply spec'
+        node_calc_spec.location = -150, 400
+        links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
 
         node_calc_alpha = mat.node_tree.nodes.new('ShaderNodeMath')
         node_calc_alpha.operation = 'MULTIPLY'
         node_calc_alpha.use_clamp = True
         node_calc_alpha.inputs[1].default_value = 1
-        node_calc_alpha.location = -150, 400
+        node_calc_alpha.location = -150, 150
         links.new(node_object_info.outputs['Alpha'], node_calc_alpha.inputs[0])
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
 
@@ -190,12 +198,12 @@ class WhmLoader:
             if (texture_name := channel['texture_name'].lower()) == '':
                 continue
             channel_idx = channel['idx']
-            input_names, node_label = {
-                0: (['Base Color', 'Emission Color'], 'diffuse'),
-                1: (['Specular IOR Level'], 'specularity'),  # FIXME metallic
-                2: (['Specular Tint'], 'reflection'),
-                3: (['Emission Strength'], 'self_illumination'),
-                4: (['Alpha'], 'opacity'),
+            inputs, node_label = {
+                0: ([node_calc_spec.inputs['A'], node_final.inputs['Emission Color']], 'diffuse'),
+                1: ([node_calc_spec.inputs['Factor'], node_final.inputs['Specular IOR Level']], 'specularity'),
+                2: ([node_calc_spec.inputs['B']], 'reflection'),
+                3: ([node_final.inputs['Emission Strength']], 'self_illumination'),
+                4: ([node_final.inputs['Alpha']], 'opacity'),
             }[channel_idx]
             node_tex = created_tex_nodes.get(texture_name)
             if not node_tex:
@@ -208,12 +216,25 @@ class WhmLoader:
                 node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
                 created_tex_nodes[texture_name] = node_tex
-            links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
+            if channel_idx == 2:
+                node_global_to_camera = mat.node_tree.nodes.new('ShaderNodeVectorTransform')
+                node_global_to_camera.convert_to = 'CAMERA'
+                node_global_to_camera.location = -600, -200
+                links.new(node_uv.outputs[6], node_global_to_camera.inputs['Vector'])
+                node_fix_reflect = mat.node_tree.nodes.new('ShaderNodeMapping')
+                node_fix_reflect.label = 'Rotate reflection vector'
+                node_fix_reflect.vector_type = 'VECTOR'
+                node_fix_reflect.inputs['Rotation'].default_value = math.pi, 0, 0
+                node_fix_reflect.location = -600, -400
+                links.new(node_global_to_camera.outputs[0], node_fix_reflect.inputs['Vector'])
+                links.new(node_fix_reflect.outputs[0], node_tex.inputs['Vector'])
+            else:
+                links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
             if channel_idx in (0, 4):
                 links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
             if channel_idx != 4:
-                for i in input_names:
-                    links.new(node_tex.outputs[0], node_final.inputs[i])
+                for i in inputs:
+                    links.new(node_tex.outputs[0], i)
 
         props.setup_drivers(mat, self.armature_obj, props.create_prop_name('uv_offset', material_name))
         props.setup_drivers(mat, self.armature_obj, props.create_prop_name('uv_tiling', material_name))
@@ -396,7 +417,9 @@ class WhmLoader:
         links.new(created_tex_nodes['default'].outputs['Color'], node_mix_dirt.inputs['Color2'])
 
         if 'default' in loaded_textures:
-            links.new(node_mix_dirt.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
+            for node in material.node_tree.nodes:
+                if node.label == 'Apply spec':
+                    links.new(node_mix_dirt.outputs[0], node.inputs['A'])
             links.new(node_mix_dirt.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
         else:
             self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
