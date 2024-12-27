@@ -823,16 +823,11 @@ class WhmLoader:
 
         #---< SKIN BONES >---
 
+        idx_to_bone_name = {}
         for _ in range(num_skin_bones):
             bone_name = reader.read_str()  # -- read bone name
             bone_idx = reader.read_one('<L')
-            if not self.ensure(
-                bone_idx < len(bone_array),
-                f'Mesh "{mesh_name}": bone index {bone_idx} is out of range ({len(bone_array) - 1})',
-            ):
-                # TODO make translation idx -> name -> correct_bone_idx
-                continue
-            self.ensure(bone_array[bone_idx].name == bone_name, f'Mesh "{mesh_name}": "{bone_array[bone_idx].name}" != "{bone_name}"')
+            idx_to_bone_name[bone_idx] = bone_name
 
         #---< VERTICES >---
 
@@ -861,13 +856,16 @@ class WhmLoader:
                     if bone_idx == 255:
                         skin_vert.bone[bone_slot] = None
                         continue
-                    if bone_idx >= len(bone_array):
-                        if not skin_data_warn:
-                            self.messages.append(('WARNING', f'Mesh "{mesh_name}": bone index {bone_idx} (slot {bone_slot}) is out of range ({len(bone_array) - 1})'))
-                            skin_data_warn = True
-                        skin_vert.bone[bone_slot] = None
-                        continue
-                    skin_vert.bone[bone_slot] = bone_array[bone_idx].name
+                    bone_name = idx_to_bone_name.get(bone_idx)
+                    if bone_name is None:
+                        if bone_idx >= len(bone_array):
+                            if not skin_data_warn:
+                                self.messages.append(('WARNING', f'Mesh "{mesh_name}": bone index {bone_idx} (slot {bone_slot}) is out of range ({len(bone_array) - 1})'))
+                                skin_data_warn = True
+                            skin_vert.bone[bone_slot] = None
+                            continue
+                        bone_name = bone_array[bone_idx].name
+                    skin_vert.bone[bone_slot] = bone_name
 
                 # -- Add Vertex To Array
                 skin_vert_array.append(skin_vert)
