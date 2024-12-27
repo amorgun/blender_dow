@@ -81,13 +81,6 @@ def add_driver(obj, obj_prop_path: str, target_id: str, target_data_path: str, f
 
 def get_weighted_vertex_groups(obj):
     used_groups = {g.group for v in obj.data.vertices for g in v.groups if g.weight > 0.001}
-    if obj.name == 'Listening_Post_Nub_L':
-        import builtins
-        builtins.print(used_groups)
-        for v in obj.data.vertices:
-            for g in v.groups:
-                if g.weight > 0.001:
-                    builtins.print(g.group, g.weight)
     return [v for v in obj.vertex_groups if v.index in used_groups]
 
 
