@@ -16,7 +16,7 @@ class ChunkHeader:  # -- Structure Holding Chunk Header Data
 
     @property
     def name(self):
-        return str(self.name_bytes.rstrip(b'\0'), 'utf8')
+        return str(self.name_bytes.rstrip(b'\0'), 'utf8', errors='ignore')
 
 
 class ChunkReader:
@@ -48,7 +48,7 @@ class ChunkReader:
         assert len(fields) == 1, 'Need to parse exactly 1 value'
         return fields[0]
     
-    def read_str(self, encoding='utf8', errors: str = 'strict'):
+    def read_str(self, encoding='utf8', errors: str = 'ignore'):
         str_len = self.read_one('<l')
         if str_len == 0:
             return ''
