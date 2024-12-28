@@ -659,8 +659,11 @@ class WhmLoader:
         num_bones = reader.read_one('<l')  # -- Read Number Of Bones
         for bone_idx in range(num_bones):  # -- Read Bones
             bone_name = reader.read_str()  # -- Read Bone Name
-            bone = self.armature_obj.pose.bones[bone_name]
-            orig_transform = self.bone_orig_transform[bone_name]
+            bone = self.armature_obj.pose.bones.get(bone_name)
+            if bone is None:
+                self.messages.append(('WARNING', f'Animation "{animation_name}" uses unknown bone "{bone_name}"'))
+            else:
+                orig_transform = self.bone_orig_transform[bone_name]
 
             delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z').to_4x4()
             keys_pos = reader.read_one('<l')  # -- Read Number Of Postion Keys
@@ -668,28 +671,31 @@ class WhmLoader:
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                 x, y, z = reader.read_struct('<3f')  # -- Read Position
                 new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, y, z]))
-
+                if bone is None:
+                    continue
                 new_mat = delta.inverted() @ orig_transform.inverted() @ new_transform @ delta
                 loc, *_ = new_mat.decompose()
                 bone.location = loc
                 self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].location', frame=frame, group=bone_name)
 
             keys_rot = reader.read_one('<l')  # -- Read Number Of Rotation Keys
-            orig_rot = self.bone_orig_transform[bone_name].to_quaternion()  # FIXME
-            delta = delta.to_quaternion()
-            bone.matrix_basis = mathutils.Matrix()
+            if bone is not None:
+                orig_rot = self.bone_orig_transform[bone_name].to_quaternion()  # FIXME
+                delta = delta.to_quaternion()
+                bone.matrix_basis = mathutils.Matrix()
             for _ in range(keys_rot):
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                 key_rot = reader.read_struct('<4f')  # -- Read Rotation X, Y, Z, W
                 new_transform = mathutils.Quaternion([key_rot[3], key_rot[0], -key_rot[1], -key_rot[2]])
-
+                if bone is None:
+                    continue
                 new_rot = delta.inverted() @ orig_rot.inverted() @ new_transform @ delta
                 new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
                 bone.rotation_quaternion = new_rot
                 self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].rotation_quaternion', frame=frame, group=bone_name)
             stale = not reader.read_one('<b')  # -- Read Stale Property
             # if stale == 0 then setUserProp bone "Stale" "Yes"											-- Set Stale Property
-            if stale:
+            if stale and bone is not None:
                 # bone.dow_settings.stale = stale
                 props.setup_property(bone, 'stale', True)
                 # self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].dow_settings.stale', frame=0)
