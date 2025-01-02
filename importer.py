@@ -48,6 +48,7 @@ class WhmLoader:
     def _reset(self):
         self.texture_count = 0
         self.loaded_material_paths = set()
+        self.loaded_resource_stats = {'attempted': 0, 'errors': 0}
         self.bone_array = []
         self.xref_bone_array = []
         self.blender_mesh_root = None
@@ -78,12 +79,14 @@ class WhmLoader:
 
     def CH_DATASSHR(self, reader: ChunkReader):  # CH_DATASSHR > - Chunk Handler - Material Data
         material_path = reader.read_str()  # -- Read Texture Path
+        self.loaded_resource_stats['attempted'] += 1
 
         if material_path not in self.loaded_material_paths:
             full_material_path = f'{material_path}.rsh'
             material_data = self.layout.find(full_material_path)
             if not material_data:
                 self.messages.append(('WARNING', f'Cannot find material file "{full_material_path}"'))
+                self.loaded_resource_stats['errors'] += 1
                 return
             material = self.load_rsh(open_reader(material_data), material_path)  # -- create new material
             if self.wtp_load_enabled:
@@ -1084,6 +1087,7 @@ class WhmLoader:
             mesh_name = reader.read_str()  # -- Read Mesh Name
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
             if mesh_path and mesh_path != pathlib.Path(''):
+                self.loaded_resource_stats['attempted'] += 1
                 filename = mesh_path.with_suffix('.whm')
                 file_data = self.layout.find(filename)
                 if file_data:
@@ -1113,9 +1117,12 @@ class WhmLoader:
                             case _: xreffile.skip(current_chunk.size)
                 else:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
+                    self.loaded_resource_stats['errors'] += 1
             mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
             if mesh_parent_idx != -1:
-                mesh = self.created_meshes[mesh_name.lower()]
+                mesh = self.created_meshes.get(mesh_name.lower())
+                if mesh is None:
+                    continue
                 bone_name = self.bone_array[mesh_parent_idx].name
                 mesh.vertex_groups.new(name=bone_name).add(
                     list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
@@ -1159,6 +1166,8 @@ class WhmLoader:
         for k, _ in self.armature_obj.items():
             if k.startswith(f'visibility{props.SEP}'):
                 self.armature_obj[k] = 1.
+        if self.loaded_resource_stats['errors'] == self.loaded_resource_stats['attempted'] > 1:
+            self.messages.append(('INFO', f'It looks like no resources were loaded. Make sure the "Mod folder" in the Add-on properties is set correctly'))
 
     def load_teamcolor(self, path: pathlib.Path | str) -> dict:
         from .slpp import slpp as lua
