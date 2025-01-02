@@ -268,7 +268,7 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
                 if d.name not in bpy.data.actions:
                     continue
                 action = bpy.data.actions.get(d.name)
-                set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False)
+                set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False, group=obj.name)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -306,7 +306,7 @@ def get_fcurve_flag(action, data_paths, default):
     return default
 
 
-def set_fcurve_flag(action, data_paths, value, default):
+def set_fcurve_flag(action, data_paths, value, default, group):
     for fcurve in action.fcurves:
         if fcurve.is_empty:
             continue
@@ -314,7 +314,11 @@ def set_fcurve_flag(action, data_paths, value, default):
             action.fcurves.remove(fcurve)
     if value != default:
         fcurve = action.fcurves.new(data_paths[0])
+        group_data = action.groups.get(group)
+        if group_data is None:
+            group_data = action.groups.new(group)
         fcurve.keyframe_points.insert(0, float(value))
+        fcurve.group = group_data
 
 
 def get_force_invisible(self):
@@ -333,7 +337,7 @@ def set_force_invisible(self, val):
     action = get_current_action(remote_prop_owner)
     if action is None:
         return
-    set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False)
+    set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=self.name)
 
 
 def get_stale(self):
@@ -348,7 +352,7 @@ def set_stale(self, val):
     action = get_current_action(bpy.context.active_object)
     if action is None:
         return
-    set_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], val, default=False)
+    set_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], val, default=False, group=self.name)
 
 
 class DowTools(bpy.types.Panel):
