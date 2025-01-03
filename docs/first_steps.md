@@ -16,7 +16,7 @@ Here I assume you have your mod installed and available in the game. It's not st
 First of all, find your **game folder**. You can do it by clicking "Browse local files" in Steam:  
 ![steam_browse](../images/first_steps/steam_browse_files.png)
 
-It usually has the following content:
+It usually has the following content:  
 ![folder_image](../images/first_steps/folder_image.png)
 
 When you download a mod you most often get an archive that you must extract to the game folder:  
