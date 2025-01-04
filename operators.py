@@ -120,17 +120,6 @@ class DOW_OT_detach_object(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def can_have_shadow(obj):
-    for m in obj.modifiers:
-        if m.type == 'ARMATURE' and m.object is not None:
-            bone_names = {b.name for b in m.object.data.bones}
-            break
-    else:
-        bone_names = set()
-    vertex_groups = utils.get_weighted_vertex_groups(obj)
-    return utils.get_single_bone_name(obj, vertex_groups, bone_names) is not None or len(vertex_groups) == 0
-
-
 class DOW_OT_create_shadow(bpy.types.Operator):
     """Create a shadow mesh for the selected object"""
 
@@ -141,13 +130,13 @@ class DOW_OT_create_shadow(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return any(
-            o.type == 'MESH' and can_have_shadow(o)
+            o.type == 'MESH' and utils.can_be_force_skinned(o)
             for o in context.selected_objects
         )
 
     def execute(self, context):
         for obj in context.selected_objects:
-            if obj.type != 'MESH' or not can_have_shadow(obj):
+            if obj.type != 'MESH' or not utils.can_be_force_skinned(obj):
                 continue
             data = obj.data.copy()
             data.materials.clear()
@@ -369,10 +358,11 @@ class DowTools(bpy.types.Panel):
                 layout.row().prop(context.active_object, 'name')
                 remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
 
-                make_prop_row(layout, context.active_object, 'xref_source')
-                if can_have_shadow(context.active_object):
+                if utils.can_be_force_skinned(context.active_object):
+                    make_prop_row(layout, context.active_object, 'xref_source')
                     layout.row().prop(context.active_object, 'dow_shadow_mesh')
                 else:
+                    layout.row().label(text='Cannot be xreffed', icon='ERROR')
                     layout.row().label(text='Cannot have a shadow', icon='ERROR')
                 layout.separator()
                 if remote_prop_owner is None:

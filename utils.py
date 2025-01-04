@@ -97,3 +97,14 @@ def get_single_bone_name(obj, vertex_groups, vertex_group_whitelist) -> str:
         if max_veight < 0.997:
             return None
     return vertex_groups[0].name
+
+
+def can_be_force_skinned(obj):
+    for m in obj.modifiers:
+        if m.type == 'ARMATURE' and m.object is not None:
+            bone_names = {b.name for b in m.object.data.bones}
+            break
+    else:
+        bone_names = set()
+    vertex_groups = get_weighted_vertex_groups(obj)
+    return get_single_bone_name(obj, vertex_groups, bone_names) is not None or len(vertex_groups) == 0
