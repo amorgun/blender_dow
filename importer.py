@@ -1021,7 +1021,7 @@ class WhmLoader:
         #---< SET BONE MESH >---
 
         vertex_groups = {}
-        for vert_idx, vert in enumerate(skin_vert_array):
+        for vert_idx, vert in enumerate([] if xref else skin_vert_array):
             for bone_weight, bone_name in zip(vert.weights, vert.bone):
                 if bone_name is None or bone_weight == 0:
                     continue
