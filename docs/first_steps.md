@@ -10,7 +10,7 @@ First of all, you need to download and install the addon:
 4. Select "OK" in the pop-up window in Blender.
 
 ## Configuration
-After you've installed the addon you need to open Add-on properties and configure "**Mod folder**" for the addon.  
+After you've installed the addon you need to open Add-on properties and configure the "**Mod folder**" for the addon.  
 ![preferences1](../images/first_steps/preferences1.png)
 Here I assume you have your mod installed and available in the game. It's not strictly necessary but it makes things much easier.  
 First of all, find your **game folder**. You can do it by clicking "Browse local files" in Steam:  
@@ -48,4 +48,4 @@ Now you've imported your file and can use it as a normal Blender model.
 Here are some ideas on what you can do now:
 - Go to the Animation tab and view unit animations.
 - Edit the model and [export it back to the game](./export.md).
-- Import other models.
+- Try importing other models.
