@@ -27,14 +27,13 @@ Anyways after installing the mod your game folder contains the new `.module` fil
 ![folder_with_mod_image](../images/first_steps/folder_with_mod_image.png)  
 Set the "**Mod folder**" property of the addon to the path to your mod folder.  
 ![preferences2](../images/first_steps/preferences2.png)  
-Base game models are located inside the `DXP2` mod that is part of the game by default.
+If you want to import a base game model they are inside the `DXP2` mod that is part of the default game files.
 
 ## Importing a model
 1. Open your mod using [Corsix's Mod Studio](https://modstudio.corsix.org/).
   ![folder_with_mod_corsix](../images/first_steps/folder_with_mod_corsix.png)
 2. Find a .whm file you are interested in and extract it.  
   ![folder_with_mod_corsix](../images/first_steps/corsix1.png)  
-  Right-click on it and select "Extract".  
   Troops models are usually at the `Data/art/ebps/races/<race_name>/troops` path.
   Right-click on the model and select "Extract". It will extract the file into the corresponding subfolder of `<mod folder>/Data`.  
 3. In Blender go to `File -> Import -> .whm` and select the extracted `.whm` model file.  
@@ -44,7 +43,7 @@ Base game models are located inside the `DXP2` mod that is part of the game by d
   ![blender_import2](../images/first_steps/blender_import2.png)  
 
 ## What's next?
-Now you've imported your file and can use it as a normal Blender model.  
+Now you've imported your file and can use it as a usual Blender model.  
 Here are some ideas on what you can do now:
 - Go to the Animation tab and view unit animations.
 - Edit the model and [export it back to the game](./export.md).
