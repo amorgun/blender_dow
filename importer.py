@@ -174,6 +174,7 @@ class WhmLoader:
         node_uv.location = -800, 200
         node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
         node_uv_offset.label = 'UV offset'
+        node_uv_offset.name = 'Mapping'
         node_uv_offset.location = -600, 200
         links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
 
