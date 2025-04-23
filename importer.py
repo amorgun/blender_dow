@@ -1124,8 +1124,11 @@ class WhmLoader:
                 if mesh is None:
                     continue
                 bone_name = self.bone_array[mesh_parent_idx].name
-                mesh.vertex_groups.new(name=bone_name).add(
-                    list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
+                if len(mesh.vertex_groups) == 0:
+                    mesh.vertex_groups.new(name=bone_name).add(
+                        list(range(len(mesh.data.vertices))), 1.0, 'REPLACE')
+                else:
+                    self.messages.append(('WARNING', f'Cannot attach "{mesh_name}" to "{bone_name}" because it already weighed to other bones'))
                 if (shadow_mesh := mesh.dow_shadow_mesh) is not None:
                     shadow_mesh.vertex_groups.new(name=bone_name).add(
                         list(range(len(shadow_mesh.data.vertices))), 1.0, 'REPLACE')
