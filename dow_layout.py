@@ -234,25 +234,28 @@ class DowLayout:
             if file.suffix.lower() != '.module' or not file.is_file():
                 continue
             config = configparser.ConfigParser(interpolation=None, comment_prefixes=('#', ';', '--'))
-            config.read(file)
-            config = config['global']
-            result[file.stem.lower()] = {
-                **{k: config[k] for k in ('uiname', 'description', 'modfolder')},
-                **{
-                    f'{key}s': [
-                        i for _, i in sorted([(k, v)
-                            for k, v in config.items()
-                            if k.startswith(f'{key}.')
-                        ], key=lambda x: int(x[0].rsplit('.')[1]))
-                    ]
-                    for key in ('datafolder', 'archivefile', 'requiredmod')
-                },
-            }
-            if 'engine' not in result:
-                result['engine'] = {
-                    'modfolder': 'engine',
-                    'archivefiles': ['%LOCALE%\EnginLoc', 'Engine', 'Engine-New'],
+            try:
+                config.read(file)
+                config = config['global']
+                result[file.stem.lower()] = {
+                    **{k: config[k] for k in ('uiname', 'description', 'modfolder')},
+                    **{
+                        f'{key}s': [
+                            i for _, i in sorted([(k, v)
+                                for k, v in config.items()
+                                if k.startswith(f'{key}.')
+                            ], key=lambda x: int(x[0].rsplit('.')[1]))
+                        ]
+                        for key in ('datafolder', 'archivefile', 'requiredmod')
+                    },
                 }
+            except Exception as e:
+                print(f'Config pasing error: {e}')
+        if 'engine' not in result:
+            result['engine'] = {
+                'modfolder': 'engine',
+                'archivefiles': ['%LOCALE%\EnginLoc', 'Engine', 'Engine-New'],
+            }
         return result
 
     def interpolate_path(
