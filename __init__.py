@@ -18,6 +18,41 @@ class LastCallArgsGroup(bpy.types.PropertyGroup):
     export_sgm: bpy.props.StringProperty()
 
 
+class DOW_OT_setup_data_path_from_module(bpy.types.Operator):
+    """Setup the Mod folder from a mod .module file"""
+
+    bl_idname = 'object.dow_setup_with_module'
+    bl_label = 'Setup using .module'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    directory: bpy.props.StringProperty(subtype="DIR_PATH")
+    filter_glob: bpy.props.StringProperty(
+        default='*.module',
+        options={'HIDDEN'},
+        maxlen=255,
+    )
+
+    def execute(self, context):
+        import configparser
+
+        config = configparser.ConfigParser(interpolation=None, comment_prefixes=('#', ';', '--'))
+        filepath = pathlib.Path(self.filepath)
+        with filepath.open('r') as f:
+            config.read_file(f)
+            config = config['global']
+            mod_folder = filepath.parent/config['modfolder']
+            if not mod_folder.is_dir():
+                raise Exception(f'Cannot find "{mod_folder}"')
+            addon_prefs = get_preferences(context)
+            addon_prefs.mod_folder = str(mod_folder)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
 class AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
@@ -78,10 +113,13 @@ class AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         mod_folder = pathlib.Path(self.mod_folder)
+        self.layout.prop(self, 'mod_folder')
         if not (mod_folder.is_dir() and any(p.name.lower() == 'data' and p.is_dir() for p in mod_folder.iterdir())):
             self.layout.label(text='''The mod folder is probably not set up correctly. It must be a directory containing a 'data ' subdirectory.''', icon='ERROR')
-        self.layout.prop(self, 'mod_folder')
-        self.layout.prop(self, 'update_animations')
+        op = self.layout.operator(DOW_OT_setup_data_path_from_module.bl_idname)
+        if mod_folder.is_dir():
+            op.directory = str(mod_folder.parent)
+
         teamcolor_panel_header, teamcolor_panel = self.layout.panel('default_teamcolor')
         teamcolor_panel_header.label(text='Default teamcolor')
         if teamcolor_panel is not None:
@@ -419,6 +457,7 @@ def register():
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(LastCallArgsGroup)
+    bpy.utils.register_class(DOW_OT_setup_data_path_from_module)
     bpy.utils.register_class(AddonPreferences)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_whm_func)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_teamcolor_func)
@@ -444,6 +483,7 @@ def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_teamcolor_func)
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_whm_func)
     bpy.utils.unregister_class(AddonPreferences)
+    bpy.utils.unregister_class(DOW_OT_setup_data_path_from_module)
     bpy.utils.unregister_class(LastCallArgsGroup)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)

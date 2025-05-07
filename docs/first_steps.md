@@ -23,10 +23,13 @@ When you download a mod you most often get an archive that you must extract to t
 ![mod_image](../images/first_steps/mod_image.png)  
 Some mods provide an installer to do it for you.
 
-Anyways after installing the mod your game folder contains the new `.module` file and the mod folder.
-![folder_with_mod_image](../images/first_steps/folder_with_mod_image.png)  
-Set the "**Mod folder**" property of the addon to the path to your mod folder.  
+Anyway after installing the mod your game folder contains the new `.module` file and the mod folder.
+
+Click on the **"Setup using .module"** button and select your .module file.  
 ![preferences2](../images/first_steps/preferences2.png)  
+
+![folder_with_mod_image](../images/first_steps/folder_with_mod_image.png)  
+
 If you want to import a base game model they are inside the `DXP2` mod that is part of the default game files.
 
 ## Importing a model
