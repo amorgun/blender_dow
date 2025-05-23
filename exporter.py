@@ -12,10 +12,10 @@ import tempfile
 
 import bpy
 import mathutils
+from bpy_extras import anim_utils
 
 from . import textures, utils, props
 from .chunky import ChunkWriter
-from .utils import print
 
 
 @enum.unique
@@ -1010,41 +1010,81 @@ class Exporter:
                         writer.write_struct('<3f',  0, 0, 0)
 
     def write_anims(self, writer: ChunkWriter):
-        anim_objects = [o for o in bpy.data.objects if o.type == 'ARMATURE' and o.animation_data]
+        anim_objects = [i for i in utils.iter_animatable() if getattr(i, 'animation_data', None) is not None]
         if len(anim_objects) == 0:
             self.messages.append(('WARNING', 'Cannot find the animation root object'))
             return
-        if len(anim_objects) > 1:
-            self.messages.append(('WARNING', 'Something is very wrong with animations'))
+        slot_owers = {}
         for action in bpy.data.actions:
-            anim_root = anim_objects[0]
+            for obj in anim_objects:
+                orig_action = obj.animation_data.action
+                obj.animation_data.action = action
+                slot_owers.setdefault(obj.animation_data.action_slot, []).append(obj)
+                obj.animation_data.action = orig_action
+        for action in bpy.data.actions:
             anim_sections = collections.defaultdict(dict)
             prop_fcurves = collections.defaultdict(dict)
-            for fcurve in action.fcurves:
-                if fcurve.is_empty:
-                    continue
-                attr = None
-                if fcurve.data_path.endswith(']'):
-                    py_path = f'x{fcurve.data_path}' if fcurve.data_path.startswith('[') else f'x.{fcurve.data_path}'
-                    attr = ast.parse(py_path, mode='single').body[0].value.slice.value
-                    path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
-                    if props.SEP in attr:
-                        prop_group, obj_name = attr.split(props.SEP, 1)
-                        prop_fcurves[prop_group.lower()].setdefault(obj_name.lower(), []).append(fcurve)
-                else:
-                    for suffix in ['.rotation_quaternion', '.location']:
-                        if fcurve.data_path.endswith(suffix):
-                            path = fcurve.data_path[:-len(suffix)]
-                            attr = suffix[1:]
-                            break
-                if not attr:
-                    continue
-                try:
-                    anim_obj = anim_root.path_resolve(path) if path else anim_root
-                except Exception:
-                    self.messages.append(('WARNING', f'Cannot resolve path "{path}" in the action "{action.name}"'))
-                    continue
-                anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
+            max_fcurve_frame = 0
+            for slot in action.slots:
+                channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+                animated_cameras = []
+                for anim_root in slot_owers.get(slot, []):
+                    if anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'CAMERA':
+                        animated_cameras.append(anim_root)
+                    if channelbag is None:
+                        continue
+                    for fcurve in channelbag.fcurves:
+                        if fcurve.is_empty:
+                            continue
+                        max_fcurve_frame = max(max_fcurve_frame, max((k.co[0] for k in fcurve.keyframe_points), default=0))
+                        attr = None
+                        if fcurve.data_path.endswith(']'):
+                            py_path = f'x{fcurve.data_path}' if fcurve.data_path.startswith('[') else f'x.{fcurve.data_path}'
+                            attr = ast.parse(py_path, mode='single').body[0].value.slice.value
+                            path = fcurve.data_path.rsplit(bpy.utils.escape_identifier(attr), 1)[0][:-2]
+                        if anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'ARMATURE':
+                            if attr is not None:
+                                if props.SEP in attr:
+                                    prop_group, obj_name = attr.split(props.SEP, 1)
+                                    prop_fcurves[prop_group.lower()].setdefault(obj_name.lower(), []).append(fcurve)
+                            else:
+                                for suffix in ['.rotation_quaternion', '.location']:
+                                    if fcurve.data_path.endswith(suffix):
+                                        path = fcurve.data_path[:-len(suffix)]
+                                        attr = suffix[1:]
+                                        break
+                            if not attr:
+                                continue
+                            try:
+                                anim_obj = anim_root.path_resolve(path) if path else anim_root
+                            except Exception:
+                                self.messages.append(('WARNING', f'Cannot resolve path "{path}" in the action "{action.name}"'))
+                                continue
+                            anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
+                        else:
+                            if attr is not None:
+                                prop_group = attr
+                            else:
+                                prop_group = fcurve.data_path
+                                if prop_group == 'color' and fcurve.array_index == 3:
+                                    prop_group = 'visibility'
+                                elif prop_group.startswith('nodes["Mapping"].inputs[1]'):
+                                    for m in bpy.data.materials:
+                                        if m.node_tree == anim_root:
+                                            anim_root = m
+                                            break
+                                    prop_group = 'uv_offset'
+                                elif prop_group.startswith('nodes["Mapping"].inputs[3]'):
+                                    prop_group = 'uv_tiling'
+                                    for m in bpy.data.materials:
+                                        if m.node_tree == anim_root:
+                                            anim_root = m
+                                            break
+                                elif anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'CAMERA':
+                                    prop_group = f'{anim_root.data.id_type}_{prop_group}'
+                                else:
+                                    prop_group = prop_group.lower()
+                            prop_fcurves[prop_group].setdefault(anim_root.name.lower(), []).append(fcurve)
 
             def get_prop_fcurves(prop: str, obj_name: str) -> list:
                 prop_data = prop_fcurves[prop]
@@ -1054,11 +1094,11 @@ class Exporter:
             with writer.start_chunk('FOLDANIM', name=action.name):
                 with self.start_chunk(writer, ExportFormat.WHM, 'DATADATA', name=action.name), \
                     self.start_chunk(writer, ExportFormat.SGM, 'FOLDDATA', name=action.name):
-                    frame_end = action.frame_end or max((k.co[0] for fcurve in action.fcurves for k in fcurve.keyframe_points), default=0)
+                    frame_end = action.frame_end or max_fcurve_frame
                     with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
                         writer.write_struct('<l', int(frame_end) + 1)
                         writer.write_struct('<f', (frame_end + 1) / action.get('fps', 30))
-                    bones = [anim_root.pose.bones[b.name] for b in self.exported_bones]
+                    bones = [self.armature_obj.pose.bones[b.name] for b in self.exported_bones]
                     bones = sorted(bones, key=lambda x: self.bone_to_idx[x.name])
                     if self.format is ExportFormat.WHM:
                         writer.write_struct('<l', len(bones))
@@ -1148,7 +1188,7 @@ class Exporter:
                             if vis_fcurves:
                                 fcurve = vis_fcurves[0]
                                 keypoints = fcurve.keyframe_points
-                                if list(keypoints[0].co) == [0., 1.]:
+                                if len(keypoints) >= 2 and keypoints[0].co[0] == 0. and keypoints[0].co[1] == keypoints[1].co[1]:
                                     keypoints = keypoints[1:]
                             else:
                                 keypoints = []
@@ -1191,8 +1231,58 @@ class Exporter:
                                         frame, val = point.co
                                         writer.write_struct('<2f', frame / max(frame_end, 1), val * mult)
                     if self.format is ExportFormat.WHM:
-                        writer.write_struct('<l', 0)  # cameras
-                        # TODO DATACMRA
+                        writer.write_struct('<l', len(animated_cameras))
+                        coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()
+                        world_rot_inv = (
+                            mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y')
+                            @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                        ).inverted().to_quaternion()
+                        coord_transform_inv = coord_transform.inverted()
+                        for cam in animated_cameras:
+                            writer.write_str(cam.name)
+                            cam_loc_fcurves = [None] * 3
+                            cam_loc_frames = set()
+
+                            for fcurve in get_prop_fcurves('CAMERA_location', cam.name):
+                                cam_loc_fcurves[fcurve.array_index] = fcurve
+                                for keyframe in fcurve.keyframe_points:
+                                    frame, val = keyframe.co
+                                    cam_loc_frames.add(frame)
+
+                            cam_rot_fcurves = [None] * 4
+                            cam_rot_frames = set()
+                            for fcurve in get_prop_fcurves('CAMERA_rotation_quaternion', cam.name):
+                                cam_rot_fcurves[fcurve.array_index] = fcurve
+                                for keyframe in fcurve.keyframe_points:
+                                    frame, val = keyframe.co
+                                    cam_rot_frames.add(frame)
+
+                            all_cam_frames = sorted(cam_loc_frames | cam_rot_frames)
+                            cam_frame_data = []
+                            for frame in all_cam_frames:
+                                loc = mathutils.Vector([fcurve.evaluate(frame) if fcurve is not None else 0
+                                                        for fcurve in cam_loc_fcurves])
+                                rot = mathutils.Quaternion([fcurve.evaluate(frame) if fcurve is not None else 0
+                                                            for fcurve in cam_rot_fcurves])
+                                if rot.magnitude > 0:
+                                    rot.normalize()
+                                frame_matrix = coord_transform @ mathutils.Matrix.LocRotScale(loc, rot, None) @ coord_transform_inv
+                                loc, rot, _ = frame_matrix.decompose()
+                                rot = rot @ world_rot_inv
+                                cam_frame_data.append([loc, rot])
+
+                            writer.write_struct('<l', len(all_cam_frames))
+                            for frame, (loc, rot) in zip(all_cam_frames, cam_frame_data):
+                                writer.write_struct('<f', frame / max(frame_end, 1))
+                                writer.write_struct('<3f', loc.x, loc.y, loc.z)
+
+                            writer.write_struct('<l', len(all_cam_frames))
+                            prev_rot = mathutils.Quaternion()
+                            for frame, (loc, rot) in zip(all_cam_frames, cam_frame_data):
+                                writer.write_struct('<f', frame / max(frame_end, 1))
+                                rot.make_compatible(prev_rot)
+                                prev_rot = rot
+                                writer.write_struct('<4f', rot.x, rot.y, rot.z, rot.w)
                 if self.format is ExportFormat.WHM:
                     with writer.start_chunk('DATAANBV', name=action.name):
                         writer.write_struct('<24x')  # TODO

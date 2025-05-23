@@ -10,7 +10,6 @@ import mathutils
 from . import textures, utils, props
 from .chunky import ChunkReader
 from .dow_layout import DowLayout, LayoutPath, DirectoryPath
-from .utils import print
 
 
 def open_reader(path: LayoutPath) -> ChunkReader:
@@ -240,8 +239,6 @@ class WhmLoader:
                 for i in inputs:
                     links.new(node_tex.outputs[0], i)
 
-        props.setup_drivers(mat, self.armature_obj, props.create_prop_name('uv_offset', material_name))
-        props.setup_drivers(mat, self.armature_obj, props.create_prop_name('uv_tiling', material_name))
         self.created_materials[material_path] = mat
         return mat
 
@@ -597,44 +594,10 @@ class WhmLoader:
 
             cam_obj = bpy.data.objects.new(cam_name, cam)
             cam_obj.matrix_basis = transform
+            cam_obj.rotation_mode = 'QUATERNION'
 
             cameras_collection.objects.link(cam_obj)
-
-            self.bone_orig_transform[cam_name] = cam_obj.matrix_basis
             self.created_cameras[cam_name] = cam_obj
-
-    def attach_camera_to_armature(self, camera_name: str):
-        camera_obj = bpy.data.objects[camera_name]
-        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
-        bone_collection = self.armature.collections.get('Cameras')
-        if bone_collection is None:
-            bone_collection = self.armature.collections.new('Cameras')
-
-        bone = self.armature.edit_bones.new(camera_name)
-        bone.head = (0, 0, 0)
-        bone.tail = (0.25, 0, 0)
-        bone_collection.assign(bone)
-        bone.color.palette = 'CUSTOM'
-        bone.color.custom.normal = mathutils.Color([154, 17, 21]) / 255
-        bone.matrix = camera_obj.matrix_basis
-        bone_name = bone.name
-        bpy.ops.object.mode_set(mode='EDIT', toggle=True)
-
-        camera_obj.rotation_mode = 'QUATERNION'
-        for target_type, d in zip(
-            ['LOC_X', 'LOC_Y', 'LOC_Z', 'ROT_W', 'ROT_X', 'ROT_Y', 'ROT_Z'],
-            [
-                *utils.add_driver(camera_obj, 'location', self.armature_obj, '', fallback_value=0),
-                *utils.add_driver(camera_obj, 'rotation_quaternion', self.armature_obj, '', fallback_value=0),
-            ]
-        ):
-            var = d.variables[0]
-            var.type = 'TRANSFORMS'
-            var.targets[0].bone_target = bone_name
-            var.targets[0].transform_type = target_type
-            var.targets[0].rotation_mode = 'QUATERNION'
-
-        return self.armature_obj.pose.bones[bone_name]
 
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
         # ---< DATADATA >---
@@ -651,16 +614,21 @@ class WhmLoader:
         else:
             animation = bpy.data.actions.new(name=animation_name)
         animation.use_fake_user = True
-        if self.armature_obj.animation_data is None:
-            self.armature_obj.animation_data_create()
-        self.armature_obj.animation_data.action = animation
 
         animation.frame_range = 0, num_frames - 1  # -- Set Start & End Frames
         props.setup_property(animation, 'fps', fps)
 
+        def create_animation_data(obj, slot):
+            if obj.animation_data is None:
+                obj.animation_data_create()
+            obj.animation_data.action = animation
+            obj.animation_data.action_slot = slot
+
         # ---< BONES >---
 
         num_bones = reader.read_one('<l')  # -- Read Number Of Bones
+        if num_bones:
+            create_animation_data(self.armature_obj, animation.slots.new(id_type='OBJECT', name='Skeleton'))
         for bone_idx in range(num_bones):  # -- Read Bones
             bone_name = reader.read_str()  # -- Read Bone Name
             bone = self.armature_obj.pose.bones.get(bone_name)
@@ -702,7 +670,6 @@ class WhmLoader:
             if stale and bone is not None:
                 # bone.dow_settings.stale = stale
                 props.setup_property(bone, 'stale', True)
-                # self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].dow_settings.stale', frame=0)
                 self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"]["stale"]', frame=0, group=bone_name)
 
         # ---< MESHES & TEXTURES >---
@@ -714,46 +681,38 @@ class WhmLoader:
             obj_name = reader.read_str()  # -- Read Mesh Name
             mode = reader.read_one('<l')
             if mode == 2:  # -- Mesh
-                # mesh = self.blender_mesh_root.all_objects[obj_name]
                 reader.skip(8)  # -- Skip 8 Bytes (Unknown, zeros)
                 keys_vis = reader.read_one('<l') - 1  # -- Read Number Of Visibility Keys
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 force_invisible = reader.read_one('<f') == 0  #-- Read ForceInvisible Property
-                force_invisible_prop_name = props.create_prop_name('force_invisible', obj_name)
                 is_invisible = False
                 if force_invisible:
                     if obj_name not in visible_meshes:
                         is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
-                props.setup_property(self.armature_obj, force_invisible_prop_name, is_invisible)  # -- Set ForceInvisible Property
-                self.armature_obj.keyframe_insert(data_path=f'["{force_invisible_prop_name}"]', frame=0, group=obj_name)
-                prop_name = props.create_prop_name('visibility', obj_name)
-                # if force_invisible == 0:
-                # setup_property(self.armature_obj, prop_name, force_invisible, default=1.0, min=0, max=1, description='Hack for animatiing mesh visibility')
-                # self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
+                mesh = self.created_meshes[obj_name]
+                create_animation_data(mesh, animation.slots.new(id_type='OBJECT', name=obj_name))
 
-                if keys_vis:
-                    props.setup_property(self.armature_obj, prop_name, 1.0)
-                    self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=0, group=obj_name)
-                
+                props.setup_property(mesh, 'force_invisible')
+                mesh['force_invisible'] = is_invisible
+                mesh.keyframe_insert(data_path='["force_invisible"]', frame=0)
                 for j in range(keys_vis):  # -- Read Visibility Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_vis = reader.read_one('<f')  # -- Read Visibility
-                    self.armature_obj[prop_name] = key_vis
-                    self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=obj_name)
+                    mesh.color[3] = key_vis
+                    if j == 0:
+                        mesh.keyframe_insert(data_path='color', frame=0, index=3)
+                    mesh.keyframe_insert(data_path='color', frame=frame, index=3)
+                mesh.color[3] = 1.0
             elif mode == 0:  # -- Texture
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 tex_anim_type = reader.read_one('<l')  # -- 1-U 2-V 3-TileU 4-TileV
                 keys_tex = reader.read_one('<l')  # -- Read Number Of Texture Keys
                 material = self.created_materials.get(obj_name)
                 if material is not None:
-                    if tex_anim_type in (1, 2):
-                        prop_name = props.create_prop_name('uv_offset', material.name)
-                        props.setup_property(self.armature_obj, prop_name, [0., 0.])
-                    else:
-                        prop_name = props.create_prop_name('uv_tiling', material.name)
-                        props.setup_property(self.armature_obj, prop_name, [1., 1.])
+                    mapping_node = material.node_tree.nodes['Mapping']
+                    create_animation_data(material.node_tree, animation.slots.new(id_type='NODETREE', name=material.name))
                 else:
                     self.messages.append(('WARNING', f'Cannot find loaded material "{obj_name}"'))
                 for j in range(keys_tex):  # -- Read Texture Keys
@@ -763,78 +722,68 @@ class WhmLoader:
                         continue
                     match tex_anim_type:
                         case 1:
-                            self.armature_obj[prop_name][0] = key_tex
-                            self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=0)
+                            mapping_node.inputs[1].default_value[0] = key_tex
+                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[1].default_value', frame=frame, index=0)
                         case 2:
-                            self.armature_obj[prop_name][1] = -key_tex
-                            self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=1)
+                            mapping_node.inputs[1].default_value[1] = -key_tex
+                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[1].default_value', frame=frame, index=1)
                         case 3:
                             self.messages.append(('INFO', 'TEST UV_TILING 1'))
-                            self.armature_obj[prop_name][0] = -key_tex
-                            self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=0)
+                            mapping_node.inputs[3].default_value[0] = -key_tex
+                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[3].default_value', frame=frame, index=0)
                         case 4:
                             self.messages.append(('INFO', 'TEST UV_TILING 2'))
-                            self.armature_obj[prop_name][1] = -key_tex
-                            self.armature_obj.keyframe_insert(data_path=f'["{prop_name}"]', frame=frame, group=prop_name, index=1)
+                            mapping_node.inputs[3].default_value[1] = -key_tex
+                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[3].default_value', frame=frame, index=1)
         # ---< CAMERA >---
 
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
 
-            coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_quaternion()
+            coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()
             world_rot = (
-                mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y').to_quaternion()
-                @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X').to_quaternion()
+                mathutils.Matrix.Rotation(math.radians(180.0), 4, 'Y')
+                @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
             )
             coord_transform_inv = coord_transform.inverted()
 
             num_cams = reader.read_one('<l')  # -- Read Number Of Cameras
             for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
-                bone = self.animated_cameras.get(cam_name)
-                orig_transform = self.bone_orig_transform.get(cam_name)
-                cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys (?)
+                camera_obj = self.created_cameras.get(cam_name)
+                create_animation_data(camera_obj, animation.slots.new(id_type='OBJECT', name=cam_name))
+                cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys
                 for _ in range(cam_pos_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
-                    x, z, y = reader.read_struct('<3f')
-                    if cam_name not in self.created_cameras:
+                    pos = reader.read_struct('<3f')
+                    if camera_obj is None:
                         continue
-                    if bone is None:
-                        bone = self.attach_camera_to_armature(cam_name)
-                        self.animated_cameras[cam_name] = bone
-                        orig_transform = self.bone_orig_transform[cam_name]
-                    new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, -y, z]))
+                    transform = (
+                        coord_transform_inv
+                        @ mathutils.Matrix.Translation(mathutils.Vector(pos))
+                        @ coord_transform
+                    )
+                    loc, *_ = transform.decompose()
+                    camera_obj.location = loc
+                    camera_obj.keyframe_insert(data_path='location', frame=frame)
 
-                    new_mat = orig_transform.inverted() @ new_transform
-                    loc, *_ = new_mat.decompose()
-                    bone.location = loc
-                    self.armature_obj.keyframe_insert(data_path=f'pose.bones["{cam_name}"].location', frame=frame, group=bone_name)
-
-                cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys (?)
-                if orig_transform is not None:
-                    orig_rot = orig_transform.to_quaternion()  # FIXME
+                cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys
                 for _ in range(cam_rot_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_rot = reader.read_struct('<4f')
-                    if cam_name not in self.created_cameras:
+                    if camera_obj is None:
                         continue
-                    if bone is None:
-                        bone = self.attach_camera_to_armature(cam_name)
-                        self.animated_cameras[cam_name] = bone
-                        orig_transform = self.bone_orig_transform[cam_name]
-                        orig_rot = orig_transform.to_quaternion()  # FIXME
-
-                    new_transform = (
+                    transform = (
                         coord_transform_inv
-                        @ mathutils.Quaternion([key_rot[3], *key_rot[:3]])
+                        @ mathutils.Quaternion([key_rot[3], *key_rot[:3]]).to_matrix().to_4x4()
                         @ world_rot
                         @ coord_transform
-                     )
+                    )
+                    new_rot = transform.to_quaternion()
+                    new_rot.make_compatible(camera_obj.rotation_quaternion)  # Fix random axis flipping
+                    camera_obj.rotation_quaternion = new_rot
+                    camera_obj.keyframe_insert(data_path='rotation_quaternion', frame=frame)
 
-                    new_rot = orig_rot.inverted() @ new_transform
-                    new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
-                    bone.rotation_quaternion = new_rot
-                    self.armature_obj.keyframe_insert(data_path=f'pose.bones["{cam_name}"].rotation_quaternion', frame=frame, group=bone_name)
-        # ---< DATAANBV >---
+       # ---< DATAANBV >---
 
         current_chunk = reader.read_header('DATAANBV')
         reader.skip(current_chunk.size)  # -- Skip DATAANBV Chunk
@@ -1014,8 +963,6 @@ class WhmLoader:
         new_mesh.polygons.foreach_set('material_index', matid_array)
 
         obj = bpy.data.objects.new(mesh_name, new_mesh)
-        props.setup_drivers(obj, self.armature_obj, props.create_prop_name('visibility', mesh_name))
-        # add_driver(obj, 'hide_viewport', self.armature_obj, f'["force_invisible__{mesh_name}"]', fallback_value=False)  # works weirdly
         obj.parent = self.armature_obj
         self.created_meshes[mesh_name.lower()] = obj
 

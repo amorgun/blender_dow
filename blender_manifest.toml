@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "blender_dow"
-version = "0.15.0-alpha5"
+version = "0.15.0-alpha6"
 name = "Dawn of War Import/Export"
 tagline = "Import and export of Dawn of War models"
 maintainer = "amorgun"
@@ -9,7 +9,7 @@ type = "add-on"
 
 website = "https://github.com/amorgun/blender_dow"
 tags = ["Import-Export"]
-blender_version_min = "4.2.0"
+blender_version_min = "4.4.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 wheels = [

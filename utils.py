@@ -88,7 +88,7 @@ def get_single_bone_name(obj, vertex_groups, vertex_group_whitelist) -> str:
     if obj.parent_type == 'BONE' and obj.parent_bone != '':
         return obj.parent_bone
     vertex_groups = [v for v in vertex_groups if v.name in vertex_group_whitelist]
-    if len(vertex_groups) > 1:
+    if len(vertex_groups) != 1:
         return None
     for v in obj.data.vertices:
         if len(v.groups) == 0:
@@ -108,3 +108,11 @@ def can_be_force_skinned(obj):
         bone_names = set()
     vertex_groups = get_weighted_vertex_groups(obj)
     return get_single_bone_name(obj, vertex_groups, bone_names) is not None or len(vertex_groups) == 0
+
+
+def iter_animatable():
+    yield from bpy.data.objects
+    for i in bpy.data.materials:
+        yield i
+        if (node_tree := getattr(i, 'node_tree', None)) is not None:
+            yield node_tree

@@ -1,4 +1,5 @@
 import bpy
+from bpy_extras import anim_utils
 import mathutils
 
 from . import props, utils
@@ -18,6 +19,42 @@ class DOW_OT_setup_property(bpy.types.Operator):
 
         if hasattr(context, 'driver_obj'):
             props.setup_drivers(context.driver_obj, context.obj, self.name)
+        return {'FINISHED'}
+
+
+def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_objs: dict):
+    display_name = display_name or prop_name
+    if prop_name in obj:
+        row.prop(obj, f'["{prop_name}"]', text=display_name)
+    else:
+        row.context_pointer_set(name='obj', data=obj)
+        for k, v in extra_objs.items():
+            row.context_pointer_set(name=k, data=v)
+        row.operator(DOW_OT_setup_property.bl_idname, text=f'Set up "{display_name}"').name = prop_name
+
+
+class DOW_OT_setup_uv_mapping(bpy.types.Operator):
+    """Set up uv_offset and uv_tiling nodes"""
+
+    bl_idname = 'object.dow_setup_uv_mapping_node'
+    bl_label = 'Create uv mapping nodes'
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        mat = context.mat
+        mat.use_nodes = True
+        links = mat.node_tree.links
+        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
+        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
+        node_uv.location = -800, 200
+        node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
+        node_uv_offset.label = 'UV offset'
+        node_uv_offset.name = 'Mapping'
+        links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
+        for node_tex in mat.node_tree.nodes:
+            if node_tex.bl_idname == 'ShaderNodeTexImage' and not node_tex.inputs['Vector'].links:
+                links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
+
         return {'FINISHED'}
 
 
@@ -251,23 +288,34 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
         for obj in context.selected_objects:
             if obj.type != 'MESH':
                 continue
-            prop_name = props.create_prop_name('force_invisible', obj.name)
-            fcurve_data_paths = [f'["{prop_name}"]', f"['{prop_name}']"]
             for d in self.actions:
                 if d.name not in bpy.data.actions:
                     continue
                 action = bpy.data.actions.get(d.name)
-                set_fcurve_flag(action, fcurve_data_paths, d.force_invisible, default=False, group=obj.name)
+                _set_force_invisible_inner(context.scene.dow_use_slotted_actions, obj, d.force_invisible, action)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         wm = context.window_manager
-        prop_name = props.create_prop_name('force_invisible', context.active_object.name)
+        self.actions.clear()
+        if context.scene.dow_use_slotted_actions:
+            animated_obj = context.active_object
+            prop_name = 'force_invisible'
+        else:
+            animated_obj = props.get_mesh_prop_owner(context.active_object)
+            prop_name = props.create_prop_name('force_invisible', context.active_object.name)
+        anim_data = get_animation_data(animated_obj)
         fcurve_data_paths = [f'["{prop_name}"]', f"['{prop_name}']"]
         for action in bpy.data.actions:
             it = self.actions.add()
             it.name = action.name
-            it.force_invisible = bool(get_fcurve_flag(action, fcurve_data_paths, default=False))
+            value = False
+            if anim_data is not None:
+                orig_action = anim_data.action
+                anim_data.action = action
+                value = bool(get_fcurve_flag(anim_data, fcurve_data_paths, default=False))
+                anim_data.action = orig_action
+            it.force_invisible = value
         return wm.invoke_props_dialog(self, width=500)
 
     def draw(self, context):
@@ -280,14 +328,24 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
 
 
-def get_current_action(obj):
-    if obj.animation_data is not None and obj.animation_data.action is not None:
-        return obj.animation_data.action
+def get_animation_data(obj):
+    if obj.animation_data is not None:
+        return obj.animation_data
     return None
 
 
-def get_fcurve_flag(action, data_paths, default):
-    for fcurve in action.fcurves:
+def get_animation_data_with_action(obj):
+    data = get_animation_data(obj)
+    if data is not None and data.action is not None:
+        return data
+    return None
+
+
+def get_fcurve_flag(anim_data, data_paths, default):
+    channelbag = anim_utils.action_get_channelbag_for_slot(anim_data.action, anim_data.action_slot)
+    if channelbag is None:
+        return default
+    for fcurve in channelbag.fcurves:
         if fcurve.is_empty:
             continue
         if any(fcurve.data_path == p for p in data_paths):
@@ -295,53 +353,84 @@ def get_fcurve_flag(action, data_paths, default):
     return default
 
 
-def set_fcurve_flag(action, data_paths, value, default, group):
-    for fcurve in action.fcurves:
+def set_fcurve_flag(anim_data, data_paths, value, default, group):
+    action = anim_data.action
+    channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
+    fcurves = channelbag.fcurves
+    for fcurve in list(fcurves):
         if fcurve.is_empty:
             continue
         if any(fcurve.data_path == p for p in data_paths):
-            action.fcurves.remove(fcurve)
+            fcurves.remove(fcurve)
     if value != default:
-        fcurve = action.fcurves.new(data_paths[0])
-        group_data = action.groups.get(group)
-        if group_data is None:
-            group_data = action.groups.new(group)
+        fcurve = fcurves.new(data_paths[0])
         fcurve.keyframe_points.insert(0, float(value))
-        fcurve.group = group_data
+        if group is not None:
+            group_data = action.groups.get(group)
+            if group_data is None:
+                group_data = action.groups.new(group)
+            fcurve.group = group_data
 
 
 def get_force_invisible(self):
-    remote_prop_owner = props.get_mesh_prop_owner(self)
-    action = get_current_action(remote_prop_owner)
-    if action is None:
+    if bpy.context.scene.dow_use_slotted_actions:
+        animated_obj = self
+        prop_name = 'force_invisible'
+    else:
+        animated_obj = remote_prop_owner = props.get_mesh_prop_owner(self)
+        prop_name = props.create_prop_name('force_invisible', self.name)
+    anim_data = get_animation_data_with_action(animated_obj)
+    if anim_data is None:
         return False
-    prop_name = props.create_prop_name('force_invisible', self.name)
-    return bool(get_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], default=False))
+    return bool(get_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], default=False))
 
 
 def set_force_invisible(self, val):
-    remote_prop_owner = props.get_mesh_prop_owner(self)
-    prop_name = props.create_prop_name('force_invisible', self.name)
-    remote_prop_owner[prop_name] = val
-    action = get_current_action(remote_prop_owner)
-    if action is None:
-        return
-    set_fcurve_flag(action, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=self.name)
+    _set_force_invisible_inner(bpy.context.scene.dow_use_slotted_actions, self, val)
+
+
+def _set_force_invisible_inner(dow_use_slotted_actions, obj, val, action=None):
+    if dow_use_slotted_actions:
+        animated_obj = obj
+        prop_name = 'force_invisible'
+        obj[prop_name] = val
+        fcurve_group = None
+    else:
+        animated_obj = remote_prop_owner = props.get_mesh_prop_owner(obj)
+        prop_name = props.create_prop_name('force_invisible', obj.name)
+        remote_prop_owner[prop_name] = val
+        fcurve_group = obj.name
+    anim_data = get_animation_data(animated_obj)
+    if anim_data is None or anim_data.action is None:
+        parent = props.get_mesh_prop_owner(animated_obj)
+        parent_anim_data = get_animation_data_with_action(parent)
+        if action is None and parent_anim_data is None:
+            return
+        if anim_data is None:
+            anim_data = animated_obj.animation_data_create()
+        final_action = anim_data.action = action if action is not None else parent_anim_data.action
+        anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name=obj.name)
+    else:
+        final_action = anim_data.action
+        if action is not None:
+            anim_data.action = action
+    set_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group)
+    anim_data.action = final_action
 
 
 def get_stale(self):
-    action = get_current_action(bpy.context.active_object)
-    if action is None:
+    anim_data = get_animation_data_with_action(bpy.context.active_object)
+    if anim_data is None:
         return False
-    return bool(get_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], default=False))
+    return bool(get_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]'], default=False))
 
 
 def set_stale(self, val):
     self['stale'] = val
-    action = get_current_action(bpy.context.active_object)
-    if action is None:
+    anim_data = get_animation_data_with_action(bpy.context.active_object)
+    if anim_data is None:
         return
-    set_fcurve_flag(action, [f'pose.bones["{self.name}"]["stale"]'], val, default=False, group=self.name)
+    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]'], val, default=False, group=self.name)
 
 
 class DowTools(bpy.types.Panel):
@@ -356,7 +445,6 @@ class DowTools(bpy.types.Panel):
         if context.active_object is not None:
             if context.active_object.type == 'MESH':
                 layout.row().prop(context.active_object, 'name')
-                remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
 
                 if utils.can_be_force_skinned(context.active_object):
                     make_prop_row(layout, context.active_object, 'xref_source')
@@ -365,34 +453,54 @@ class DowTools(bpy.types.Panel):
                     layout.row().label(text='Cannot be xreffed', icon='ERROR')
                     layout.row().label(text='Cannot have a shadow', icon='ERROR')
                 layout.separator()
-                if remote_prop_owner is None:
-                    layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
+                current_action = None
+                if context.scene.dow_use_slotted_actions:
+                    current_anim_data = get_animation_data_with_action(context.active_object)
+                    if current_anim_data is not None:
+                        current_action = current_anim_data.action
+                    else:
+                        parent = props.get_mesh_prop_owner(context.active_object)
+                        parent_anim_data = get_animation_data_with_action(parent)
+                        if parent_anim_data is not None:
+                            current_action = parent_anim_data.action
                 else:
-                    current_action = get_current_action(remote_prop_owner)
-                    if current_action is not None:
-                        layout.row().prop(current_action, 'name', text='Action')
-                        row = layout.row()
-                        row.prop(context.active_object, 'dow_force_invisible')
-                        op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
-                        op.mesh_name = context.active_object.name
-                        make_prop_row(
-                            layout.row(),
-                            remote_prop_owner,
-                            prop_name=props.create_prop_name('visibility', context.active_object.name),
-                            display_name='visibility',
-                            driver_obj=context.active_object,
-                        )
+                    remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
+                    if remote_prop_owner is None:
+                        layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
+                    else:
+                        current_anim_data = get_animation_data_with_action(remote_prop_owner)
+                        if current_anim_data is not None:
+                            current_action = current_anim_data.action
+                if current_action is not None:
+                    layout.row().prop(current_action, 'name', text='Action')
+                    row = layout.row()
+                    row.prop(context.active_object, 'dow_force_invisible')
+                    op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
+                    op.mesh_name = context.active_object.name
+                if context.scene.dow_use_slotted_actions:
+                    layout.row().prop(context.active_object, 'color', index=3, text='visibility')
+                elif current_action:
+                    make_prop_row(
+                        layout.row(),
+                        remote_prop_owner,
+                        prop_name=props.create_prop_name('visibility', context.active_object.name),
+                        display_name='visibility',
+                        driver_obj=context.active_object,
+                    )
         if context.active_pose_bone is not None:
             layout.row().prop(context.active_pose_bone, 'name')
-            current_action = get_current_action(context.active_object)
-            if current_action is not None:
+            current_anim_data = get_animation_data_with_action(context.active_object)
+            if current_anim_data is not None:
+                current_action = current_anim_data.action
                 layout.row().prop(current_action, 'name', text='Action')
                 layout.row().prop(context.active_pose_bone, 'dow_stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
+        layout.row().prop(context.scene, 'dow_autoswitch_actions')
         if context.mode == 'OBJECT':
-            layout.row().operator(DOW_OT_attach_object.bl_idname)
-            layout.row().operator(DOW_OT_detach_object.bl_idname)
+            if not context.scene.dow_use_slotted_actions:
+                layout.row().operator(DOW_OT_attach_object.bl_idname)
+                layout.row().operator(DOW_OT_detach_object.bl_idname)
             layout.row().operator(DOW_OT_create_shadow.bl_idname)
         if context.mode in ('POSE', 'EDIT_ARMATURE'):
             layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
@@ -417,22 +525,36 @@ class DowMaterialTools(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         mat = context.active_object.active_material
-        # mapping_node = mat.node_tree.nodes.get('Mapping')
-        # if mapping_node is None:
-        #     layout.row().label(text='Material is not parented to an armature', icon='ERROR')
-        #     return
-        remote_prop_owner = props.get_material_prop_owner(mat)
-        if remote_prop_owner is None:
-            layout.row().label(text='Material is not parented to an armature', icon='ERROR')
+        if context.scene.dow_use_slotted_actions:
+            node = None
+            if mat.node_tree is not None:
+                node = mat.node_tree.nodes.get('Mapping')
+            if node is not None:
+                row = layout.row()
+                row.label(text='uv_offset')
+                row.prop(node.inputs[1], 'default_value', text='', index=0)
+                row.prop(node.inputs[1], 'default_value', text='', index=1)
+                row = layout.row()
+                row.label(text='uv_tiling')
+                row.prop(node.inputs[3], 'default_value', text='', index=0)
+                row.prop(node.inputs[3], 'default_value', text='', index=1)
+            else:
+                row = layout.row()
+                row.context_pointer_set(name='mat', data=mat)
+                row.operator(DOW_OT_setup_uv_mapping.bl_idname, text=f'Set up "uv_offset"')
         else:
-            for prop in props.REMOTE_PROPS['MATERIAL']:
-                make_prop_row(
-                    layout,
-                    remote_prop_owner,
-                    prop_name=props.create_prop_name(prop, mat.name),
-                    display_name=prop,
-                    driver_obj=mat,
-                )
+            remote_prop_owner = props.get_material_prop_owner(mat)
+            if remote_prop_owner is None:
+                layout.row().label(text='Material is not parented to an armature', icon='ERROR')
+            else:
+                for prop in props.REMOTE_PROPS['MATERIAL']:
+                    make_prop_row(
+                        layout,
+                        remote_prop_owner,
+                        prop_name=props.create_prop_name(prop, mat.name),
+                        display_name=prop,
+                        driver_obj=mat,
+                    )
         for prop in [
             'full_path',
             'internal',
@@ -505,13 +627,41 @@ def rename_listener(scene, depsgraph):
 
 
 @bpy.app.handlers.persistent
-def init_nameprops(filename: str = ''):
+def action_change_listener(scene, depsgraph):
+    if not depsgraph.id_type_updated('OBJECT'):
+        return
+
+    for update in depsgraph.updates:
+        obj = update.id.original
+        if not hasattr(obj, 'dow_last_action'):
+            continue
+        if (animation_data := get_animation_data_with_action(obj)) is None:
+            continue
+        action = animation_data.action
+        if action.session_uid == obj.dow_last_action:
+            continue
+        obj.dow_last_action = action.session_uid
+        if not scene.dow_autoswitch_actions:
+            continue
+        for d in utils.iter_animatable():
+            if (animation_data := get_animation_data_with_action(d)) is None:
+                continue
+            if action.session_uid == d.dow_last_action:
+                continue
+            animation_data.action = action
+            d.dow_last_action = action.session_uid
+
+
+@bpy.app.handlers.persistent
+def init_dow_props(filename: str = ''):
     for obj in bpy.data.objects:
         if obj.type == 'ARMATURE' and obj.pose:
             for b in obj.pose.bones:
                 b.dow_name = b.name
         if obj.type == 'MESH':
             obj.dow_name = obj.name
+        if (animation_data := get_animation_data_with_action(obj)) is not None:
+            obj.dow_last_action = animation_data.action.session_uid
     for obj in bpy.data.materials:
         obj.dow_name = obj.name
 
@@ -520,6 +670,7 @@ def register():
     bpy.utils.register_class(DowTools)
     bpy.utils.register_class(DowMaterialTools)
     bpy.utils.register_class(DOW_OT_setup_property)
+    bpy.utils.register_class(DOW_OT_setup_uv_mapping)
     bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
     bpy.utils.register_class(DOW_OT_create_shadow)
@@ -534,6 +685,13 @@ def register():
         bpy.types.PoseBone,
     ]:
         t.dow_name = bpy.props.StringProperty()
+    for t in [
+        bpy.types.Object,
+        bpy.types.Armature,
+        bpy.types.Material,
+        bpy.types.ShaderNodeTree,
+    ]:
+        t.dow_last_action = bpy.props.IntProperty()
     bpy.types.Object.dow_force_invisible = bpy.props.BoolProperty(
         name='force_invisible',
         description=props.ARGS[bpy.types.Object, 'force_invisible']['description'],
@@ -551,22 +709,38 @@ def register():
         description='Automatically update all actions on mesh and bone renames',
         default=False,
     )
+    bpy.types.Scene.dow_autoswitch_actions = bpy.props.BoolProperty(
+        name='Sync switch actions',
+        description='Automatically switch actions for all animated objects',
+        default=False,
+    )
+    bpy.types.Scene.dow_use_slotted_actions = bpy.props.BoolProperty(default=False)
     bpy.app.handlers.depsgraph_update_post.append(rename_listener)
-    bpy.app.handlers.load_post.append(init_nameprops)
+    bpy.app.handlers.depsgraph_update_post.append(action_change_listener)
+    bpy.app.handlers.load_post.append(init_dow_props)
 
 
 def unregister():
     bpy.app.handlers.load_post[:] = [
-        h for h in bpy.app.handlers.depsgraph_update_post
-        if h is not init_nameprops
+        h for h in bpy.app.handlers.load_post
+        if h is not init_dow_props
     ]
     bpy.app.handlers.depsgraph_update_post[:] = [
         h for h in bpy.app.handlers.depsgraph_update_post
-        if h is not rename_listener
+        if h not in (rename_listener, action_change_listener)
     ]
+    del bpy.types.Scene.dow_use_slotted_actions
+    del bpy.types.Scene.dow_autoswitch_actions
     del bpy.types.Scene.dow_update_animations
     del bpy.types.PoseBone.dow_stale
     del bpy.types.Object.dow_force_invisible
+    for t in [
+        bpy.types.Object,
+        bpy.types.Armature,
+        bpy.types.Material,
+        bpy.types.ShaderNodeTree,
+    ]:
+        del t.dow_last_action
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -581,6 +755,7 @@ def unregister():
     bpy.utils.unregister_class(DOW_OT_create_shadow)
     bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_attach_object)
+    bpy.utils.unregister_class(DOW_OT_setup_uv_mapping)
     bpy.utils.unregister_class(DOW_OT_setup_property)
     bpy.utils.unregister_class(DowMaterialTools)
     bpy.utils.unregister_class(DowTools)

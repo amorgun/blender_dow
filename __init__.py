@@ -5,7 +5,7 @@ import platform
 import bpy
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from . import importer, exporter, operators
+from . import importer, exporter, operators, props
 
 
 ADDON_LOCATION = pathlib.Path(__file__).parent
@@ -222,8 +222,9 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                             space = area.spaces.active
                             if space.type == 'VIEW_3D':
                                 space.shading.type = 'MATERIAL'
-                    operators.init_nameprops()
-                    context.scene.dow_update_animations = True
+                    operators.init_dow_props()
+                    context.scene.dow_autoswitch_actions = True
+                    context.scene.dow_use_slotted_actions = True
                 finally:
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)
