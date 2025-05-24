@@ -422,15 +422,22 @@ def get_stale(self):
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return False
-    return bool(get_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]'], default=False))
+    return bool(get_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], default=False))
 
 
 def set_stale(self, val):
-    self['stale'] = val
+    prop = None
+    for k in ['stale', 'Stale']:
+        if k in self:
+            prop = k
+    if prop is None:
+        prop = 'stale'
+        props.setup_property(self, prop, True)
+    self[prop] = val
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return
-    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]'], val, default=False, group=self.name)
+    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["{prop}"]'], val, default=False, group=self.name)
 
 
 class DowTools(bpy.types.Panel):
