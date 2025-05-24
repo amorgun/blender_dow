@@ -430,6 +430,7 @@ def set_stale(self, val):
     for k in ['stale', 'Stale']:
         if k in self:
             prop = k
+            break
     if prop is None:
         prop = 'stale'
         props.setup_property(self, prop, True)
