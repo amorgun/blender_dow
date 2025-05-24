@@ -389,8 +389,8 @@ def set_force_invisible(self, val):
     _set_force_invisible_inner(bpy.context.scene.dow_use_slotted_actions, self, val)
 
 
-def _set_force_invisible_inner(dow_use_slotted_actions, obj, val, action=None):
-    if dow_use_slotted_actions:
+def _set_force_invisible_inner(use_slotted_actions, obj, val, action=None):
+    if use_slotted_actions:
         animated_obj = obj
         prop_name = 'force_invisible'
         obj[prop_name] = val
@@ -438,7 +438,7 @@ def set_stale(self, val):
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return
-    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["{prop}"]'], val, default=False, group=self.name)
+    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name)
 
 
 class DowTools(bpy.types.Panel):
