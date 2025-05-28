@@ -298,13 +298,15 @@ class WhmLoader:
 
         links = material.node_tree.links
         common_node_pos_x, common_node_pos_y = -600, 3100
+        aply_teamcolor = material.node_tree.nodes.new('ShaderNodeGroup')
+        aply_teamcolor.node_tree = self.create_teamcolor_group()
+        aply_teamcolor.location = common_node_pos_x + 600, common_node_pos_y - 600
         uf_offset_node = [
             node for node in material.node_tree.nodes
             if node.bl_idname == 'ShaderNodeMapping'
             and node.label == 'UV offset'
         ][0]
         created_tex_nodes = {}
-        prev_color_output = None
         for layer_name in layer_names.values():
             node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
             node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
@@ -317,23 +319,7 @@ class WhmLoader:
             node_tex.location = node_pos_x + 200, node_pos_y
             node_tex.label = f'color_layer_{layer_name}'
             links.new(uf_offset_node.outputs[0], node_tex.inputs['Vector'])
-
-            if layer_name in self.TEAMCOLORABLE_LAYERS:
-                node_color = material.node_tree.nodes.new('ShaderNodeValToRGB')
-                node_color.label = f'color_{layer_name}'
-                node_color.location = node_pos_x + 480, node_pos_y
-                node_color.width = 100
-                links.new(node_tex.outputs[0], node_color.inputs['Fac'])
-                if prev_color_output is None:
-                    prev_color_output = node_color.outputs[0]
-                else:
-                    node_mix = material.node_tree.nodes.new('ShaderNodeMixRGB')
-                    node_mix.blend_type = 'ADD'
-                    node_mix.inputs['Fac'].default_value = 1
-                    node_mix.location = node_pos_x + 650, node_pos_y
-                    links.new(prev_color_output, node_mix.inputs['Color1'])
-                    links.new(node_color.outputs['Color'], node_mix.inputs['Color2'])
-                    prev_color_output = node_mix.outputs[0]
+            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_{"value" if layer_name != "default" else "color"}'])
 
         img_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
         img_size_node.inputs['X'].default_value = default_image_size[0]
@@ -401,29 +387,150 @@ class WhmLoader:
                 node_tex.image = default_image
                 node_tex.hide = True
             links.new(scale_node.outputs[0], node_tex.inputs['Vector'])
-
-            node_mix = material.node_tree.nodes.new('ShaderNodeMixRGB')
-            node_mix.blend_type = 'MIX'
-            node_mix.location = node_pos_x + 480, node_pos_y
-            links.new(node_tex.outputs['Alpha'], node_mix.inputs['Fac'])
-            links.new(prev_color_output, node_mix.inputs['Color1'])
-            links.new(node_tex.outputs['Color'], node_mix.inputs['Color2'])
-            prev_color_output = node_mix.outputs[0]
-
-        node_mix_dirt = material.node_tree.nodes.new('ShaderNodeMixRGB')
-        node_mix_dirt.blend_type = 'ADD'
-        node_mix_dirt.location = common_node_pos_x + 650, common_node_pos_y - 290 * (len(created_tex_nodes) - 1)
-        links.new(created_tex_nodes['dirt'].outputs['Color'], node_mix_dirt.inputs['Fac'])
-        links.new(prev_color_output, node_mix_dirt.inputs['Color1'])
-        links.new(created_tex_nodes['default'].outputs['Color'], node_mix_dirt.inputs['Color2'])
+            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_color'])
+            links.new(node_tex.outputs[1], aply_teamcolor.inputs[f'{layer_name}_alpha'])
 
         if 'default' in loaded_textures:
             for node in material.node_tree.nodes:
                 if node.label == 'Apply spec':
-                    links.new(node_mix_dirt.outputs[0], node.inputs['A'])
-            links.new(node_mix_dirt.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
+                    links.new(aply_teamcolor.outputs[0], node.inputs['A'])
+            links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
         else:
             self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
+
+    def create_teamcolor_group(self, name: str = 'ApplyTeamcolor'):
+        if name in bpy.data.node_groups:
+            return bpy.data.node_groups[name]
+
+        group = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+
+        interface = group.interface
+
+        interface.new_socket(
+            name='default_color',
+            in_out='INPUT',
+            socket_type='NodeSocketColor',
+        )
+        interface.new_socket(
+            name='dirt_value',
+            in_out='INPUT',
+            socket_type='NodeSocketFloat',
+        )
+
+        for c in sorted(self.TEAMCOLORABLE_LAYERS):
+            panel = interface.new_panel(name=c, default_closed=True)
+            interface.new_socket(
+                name=f'{c}_color',
+                in_out='INPUT',
+                socket_type='NodeSocketColor',
+                parent=panel,
+            )
+            interface.new_socket(
+                name=f'{c}_value',
+                in_out='INPUT',
+                socket_type='NodeSocketFloat',
+                parent=panel,
+            )
+        for c in self.TEAMCOLORABLE_IMAGES:
+            panel = interface.new_panel(name=c, default_closed=True)
+            interface.new_socket(
+                name=f'{c}_color',
+                in_out='INPUT',
+                socket_type='NodeSocketColor',
+                parent=panel,
+            )
+            interface.new_socket(
+                name=f'{c}_alpha',
+                in_out='INPUT',
+                socket_type='NodeSocketFloat',
+                parent=panel,
+            )
+
+        interface.new_socket(
+            name='result',
+            in_out='OUTPUT',
+            socket_type='NodeSocketColor',
+        )
+
+        group_inputs = group.nodes.new('NodeGroupInput')
+        group_inputs.location = -650, 0
+
+        group_outputs = group.nodes.new('NodeGroupOutput')
+        group_outputs.location = 400, 0
+
+        links = group.links
+
+        prev_color_output = None
+        common_node_pos_x, common_node_pos_y = -100, 500
+        for idx, layer_name in enumerate(sorted(self.TEAMCOLORABLE_LAYERS)):
+            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 220 * idx
+
+            correct_color = group.nodes.new('ShaderNodeGamma')
+            correct_color.inputs['Gamma'].default_value = 0.4545
+            correct_color.location = node_pos_x - 200, node_pos_y - 70
+            links.new(group_inputs.outputs[f'{layer_name}_color'], correct_color.inputs['Color'])
+
+            correct_mask = group.nodes.new('ShaderNodeGamma')
+            correct_mask.inputs['Gamma'].default_value = 0.4545
+            correct_mask.location = node_pos_x - 200, node_pos_y + 30
+            links.new(group_inputs.outputs[f'{layer_name}_value'], correct_mask.inputs['Color'])
+
+            layer_color_node = group.nodes.new('ShaderNodeMixRGB')
+            layer_color_node.blend_type = 'OVERLAY'
+            layer_color_node.inputs['Fac'].default_value = 1
+            layer_color_node.label = layer_name
+            layer_color_node.location = node_pos_x, node_pos_y
+
+            links.new(correct_mask.outputs[0], layer_color_node.inputs['Color1'])
+            links.new(correct_color.outputs[0], layer_color_node.inputs['Color2'])
+            if prev_color_output is None:
+                prev_color_output = layer_color_node.outputs[0]
+            else:
+                node_mix = group.nodes.new('ShaderNodeMixRGB')
+                node_mix.blend_type = 'ADD'
+                node_mix.inputs['Fac'].default_value = 1
+                node_mix.location = node_pos_x + 200, node_pos_y
+                links.new(prev_color_output, node_mix.inputs['Color1'])
+                links.new(layer_color_node.outputs['Color'], node_mix.inputs['Color2'])
+                prev_color_output = node_mix.outputs[0]
+
+        idx += 1
+        node_pos_x, node_pos_y = common_node_pos_x + 200, common_node_pos_y - 220 * idx
+        correct_color_dirt = group.nodes.new('ShaderNodeGamma')
+        correct_color_dirt.inputs['Gamma'].default_value = 0.4545
+        correct_color_dirt.location = node_pos_x - 200, node_pos_y - 70
+        links.new(group_inputs.outputs['default_color'], correct_color_dirt.inputs['Color'])
+
+        correct_mask_dirt = group.nodes.new('ShaderNodeGamma')
+        correct_mask_dirt.inputs['Gamma'].default_value = 0.4545
+        correct_mask_dirt.location = node_pos_x - 200, node_pos_y + 30
+        links.new(group_inputs.outputs['dirt_value'], correct_mask_dirt.inputs['Color'])
+
+        node_mix_dirt = group.nodes.new('ShaderNodeMixRGB')
+        node_mix_dirt.blend_type = 'ADD'
+        node_mix_dirt.location = node_pos_x, node_pos_y
+        links.new(correct_mask_dirt.outputs[0], node_mix_dirt.inputs['Fac'])
+        links.new(prev_color_output, node_mix_dirt.inputs['Color1'])
+        links.new(correct_color_dirt.outputs[0], node_mix_dirt.inputs['Color2'])
+
+        combined_color = group.nodes.new('ShaderNodeGamma')
+        combined_color.inputs['Gamma'].default_value = 2.2
+        combined_color.location = node_pos_x + 200, node_pos_y
+        links.new(node_mix_dirt.outputs[0], combined_color.inputs['Color'])
+        prev_color_output = combined_color.outputs[0]
+
+        for layer_name in self.TEAMCOLORABLE_IMAGES:
+            idx += 1
+            node_mix = group.nodes.new('ShaderNodeMixRGB')
+            node_mix.blend_type = 'MIX'
+            node_mix.location = common_node_pos_x + 200, common_node_pos_y - 220 * idx
+            links.new(group_inputs.outputs[f'{layer_name}_alpha'], node_mix.inputs['Fac'])
+            links.new(prev_color_output, node_mix.inputs['Color1'])
+            links.new(group_inputs.outputs[f'{layer_name}_color'], node_mix.inputs['Color2'])
+            prev_color_output = node_mix.outputs[0]
+
+        group.links.new(prev_color_output, group_outputs.inputs['result'])
+        return group
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
@@ -1170,10 +1277,14 @@ class WhmLoader:
                     key = node.label[len('color_'):]
                     if teamcolor.get(key) is None:
                         continue
-                    node.color_ramp.elements[-1].color[:3] = teamcolor[key][:3]
-                    continue
+                    node.color_ramp.elements[-1].color[:3] = teamcolor[key].from_srgb_to_scene_linear()[:3]
                 if node.bl_idname == 'ShaderNodeTexImage' and node.label in self.TEAMCOLORABLE_IMAGES and images.get(node.label) is not None:
                     node.image = images[node.label]
+                if node.bl_idname == 'ShaderNodeGroup' and node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None):
+                    for c in self.TEAMCOLORABLE_LAYERS:
+                        if teamcolor.get(c, None) is None:
+                            continue
+                        node.inputs[f'{c}_color'].default_value[:3] = teamcolor[c].copy().from_srgb_to_scene_linear()  # TODO Investigate why the default color scheme doesn't apply without copy()
 
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
