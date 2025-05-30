@@ -166,6 +166,7 @@ class Exporter:
             make_oe_compatable_textures: bool = True,
             vertex_position_merge_threshold: float = 0,
             vertex_normal_merge_threshold: float = 0.01,
+            uv_merge_threshold: float = 0.001,
             use_legacy_marker_orientation: bool = False,
             context=None,
         ) -> None:
@@ -178,6 +179,7 @@ class Exporter:
         self.make_oe_compatable_textures = make_oe_compatable_textures
         self.vertex_position_merge_threshold = vertex_position_merge_threshold
         self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
+        self.uv_merge_threshold = uv_merge_threshold
         self.use_legacy_marker_orientation = use_legacy_marker_orientation
         self.bpy_context = context if context is not None else bpy.context
 
@@ -781,19 +783,20 @@ class Exporter:
                                         vertex_pos_key = merged_vertes_idx[orig_vertex_idx] = orig_vertex_idx
                                 else:
                                     vertex_pos_key = orig_vertex_idx
-                                seen_vertex_data = seen_data.setdefault(vertex_pos_key, {})
+                                seen_vertex_data = seen_data.setdefault(vertex_pos_key, [])
                                 uv = uv_layer.uv[loop_idx].vector
-                                vertex_uv_key = uv.to_tuple(4)
-                                seen_vetex_normals: list = seen_vertex_data.setdefault(vertex_uv_key, [])
-                                vertex_normal = obj.matrix_world.to_3x3() @ mesh.corner_normals[loop_idx].vector
+                                vertex_normal = obj.matrix_world.to_3x3() @ mesh.loops[loop_idx].normal
                                 vertex_idx = None
-                                for idx, v in seen_vetex_normals:
-                                    if (v - vertex_normal).length < self.vertex_normal_merge_threshold:
+                                for idx, other_normal, other_uv in seen_vertex_data:
+                                    if (
+                                        (other_normal - vertex_normal).length < self.vertex_normal_merge_threshold
+                                        and (uv - other_uv).length < self.uv_merge_threshold
+                                    ):
                                         vertex_idx = idx
                                         break
                                 if vertex_idx is None:
                                     vertex_idx = len(extended_vertices)
-                                    seen_vetex_normals.append((vertex_idx, vertex_normal))
+                                    seen_vertex_data.append((vertex_idx, vertex_normal, uv))
                                     vertex_info = VertexInfo(
                                         position=vertex_pos,
                                         vertex_groups=[g for g in vertex.groups
