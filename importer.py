@@ -1062,8 +1062,10 @@ class WhmLoader:
         #---< MESH PROPERTIES >---
 
         #new_mesh.wireColor = (color 28 89 177)												-- Set Color (Blue)
+        for p in new_mesh.polygons:
+            p.use_smooth = True
         new_mesh.normals_split_custom_set_from_vertices(normal_array)
-        
+
         for mat in materials:  # -- Set Material
             new_mesh.materials.append(mat)
         
