@@ -225,6 +225,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                     operators.init_dow_props()
                     context.scene.dow_autoswitch_actions = True
                     context.scene.dow_use_slotted_actions = True
+                    context.scene.dow_update_animations = True
                 finally:
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)
