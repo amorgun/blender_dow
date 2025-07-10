@@ -798,7 +798,7 @@ class WhmLoader:
                         is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
-                mesh = self.created_meshes[obj_name]
+                mesh = self.created_meshes[obj_name.lower()]
                 create_animation_data(mesh, animation.slots.new(id_type='OBJECT', name=obj_name))
 
                 props.setup_property(mesh, 'force_invisible')
