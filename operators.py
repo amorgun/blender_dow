@@ -1,5 +1,6 @@
 import bpy
 from bpy_extras import anim_utils
+import bmesh
 import mathutils
 
 from . import props, utils
@@ -192,6 +193,93 @@ class DOW_OT_create_shadow(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class DOW_OT_autosplit_mesh(bpy.types.Operator):
+    """Find and extract mesh parts that can be parented to a single bone"""
+
+    bl_idname = 'object.dow_autosplit_mesh'
+    bl_label = 'Autosplit mesh'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    min_poly: bpy.props.IntProperty(
+        name='Min poly count',
+        description='Minimum size of an extracted mesh',
+        default=16,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            o.type == 'MESH' and not utils.can_be_force_skinned(o)
+            for o in context.selected_objects
+        )
+
+    def execute(self, context):
+        min_poly = 16
+        seen_meshes = [o for o in bpy.data.objects if o.type == 'MESH']
+        for obj in list(context.selected_objects):
+            if not (obj.type == 'MESH' and not utils.can_be_force_skinned(obj)):
+                continue
+            bones = None
+            for m in obj.modifiers:
+                if m.type == 'ARMATURE':
+                    bones = {b.name for b in m.object.data.bones}
+            vert2group = {}
+            for v in obj.data.vertices:
+                groups = v.groups
+                if bones is not None:
+                    groups = [g for g in groups if obj.vertex_groups[g.group].name in bones and g.weight > 1e-4]
+                if len(groups) != 1:
+                    continue
+                if groups[0].weight < 1 - 1e-4:
+                    continue
+                vert2group[v.index] = groups[0].group
+            poly_groups = {}
+            for p in obj.data.polygons:
+                g = vert2group.get(p.vertices[0])
+                if g is None:
+                    continue
+                if any(vert2group.get(v) != g for v in p.vertices):
+                    continue
+                poly_groups.setdefault(g, []).append(p.index)
+
+            def remove_unused(bm):
+                verts = [v for v in bm.verts if not v.link_faces]
+                for v in verts:
+                    bm.verts.remove(v)
+
+            removed_faces = set()
+            for g, poly in poly_groups.items():
+                vertex_group = obj.vertex_groups[g]
+                if len(poly) < self.min_poly:
+                    continue
+                obj_copy = obj.copy()
+                obj_copy.data = obj.data.copy()
+                obj_copy.name = vertex_group.name
+                bpy.data.collections[0].objects.link(obj_copy)
+                bm = bmesh.new()
+                bm.from_mesh(obj_copy.data)
+                bm.verts.ensure_lookup_table()
+                bm.faces.ensure_lookup_table()
+                keep = set(poly)
+                for p in bm.faces:
+                    if p.index not in keep:
+                        bm.faces.remove(p)
+                    else:
+                        removed_faces.add(p.index)
+                remove_unused(bm)
+                bm.to_mesh(obj_copy.data)
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            bm.verts.ensure_lookup_table()
+            bm.faces.ensure_lookup_table()
+            for p in bm.faces:
+                if p.index in removed_faces:
+                    bm.faces.remove(p)
+            remove_unused(bm)
+            bm.to_mesh(obj.data)
+        return {'FINISHED'}
+
+
 class DOW_OT_convert_to_marker(bpy.types.Operator):
     """Convert the bone to marker"""
 
@@ -292,13 +380,13 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
                 if d.name not in bpy.data.actions:
                     continue
                 action = bpy.data.actions.get(d.name)
-                _set_force_invisible_inner(context.scene.dow_use_slotted_actions, obj, d.force_invisible, action)
+                _set_force_invisible_inner(obj, d.force_invisible, action)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         wm = context.window_manager
         self.actions.clear()
-        if context.scene.dow_use_slotted_actions:
+        if mesh_use_slotted_actions(context.active_object, 'force_invisible'):
             animated_obj = context.active_object
             prop_name = 'force_invisible'
         else:
@@ -356,6 +444,8 @@ def get_fcurve_flag(anim_data, data_paths, default):
 def set_fcurve_flag(anim_data, data_paths, value, default, group):
     action = anim_data.action
     channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
+    if channelbag is None:
+        channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
     fcurves = channelbag.fcurves
     for fcurve in list(fcurves):
         if fcurve.is_empty:
@@ -372,12 +462,28 @@ def set_fcurve_flag(anim_data, data_paths, value, default, group):
             fcurve.group = group_data
 
 
+def mesh_use_slotted_actions(mesh, prop_name: str):
+    remote_prop_owner = props.get_mesh_prop_owner(mesh)
+    if remote_prop_owner is None:
+        return True
+    if prop_name == 'force_invisible':
+        prop_name = props.create_prop_name(prop_name, mesh.name)
+        return prop_name not in remote_prop_owner
+    else:
+        if mesh.animation_data is None:
+            return True
+        for d in mesh.animation_data.drivers:
+            if (d.data_path, d.array_index) == ('color', 3):
+                return False
+        return True
+
+
 def get_force_invisible(self):
-    if bpy.context.scene.dow_use_slotted_actions:
+    if mesh_use_slotted_actions(self, 'force_invisible'):
         animated_obj = self
         prop_name = 'force_invisible'
     else:
-        animated_obj = remote_prop_owner = props.get_mesh_prop_owner(self)
+        animated_obj = props.get_mesh_prop_owner(self)
         prop_name = props.create_prop_name('force_invisible', self.name)
     anim_data = get_animation_data_with_action(animated_obj)
     if anim_data is None:
@@ -386,11 +492,11 @@ def get_force_invisible(self):
 
 
 def set_force_invisible(self, val):
-    _set_force_invisible_inner(bpy.context.scene.dow_use_slotted_actions, self, val)
+    _set_force_invisible_inner(self, val)
 
 
-def _set_force_invisible_inner(use_slotted_actions, obj, val, action=None):
-    if use_slotted_actions:
+def _set_force_invisible_inner(obj, val, action=None):
+    if mesh_use_slotted_actions(obj, 'force_invisible'):
         animated_obj = obj
         prop_name = 'force_invisible'
         obj[prop_name] = val
@@ -462,30 +568,23 @@ class DowTools(bpy.types.Panel):
                     layout.row().label(text='Cannot have a shadow', icon='ERROR')
                 layout.separator()
                 current_action = None
-                if context.scene.dow_use_slotted_actions:
-                    current_anim_data = get_animation_data_with_action(context.active_object)
-                    if current_anim_data is not None:
-                        current_action = current_anim_data.action
-                    else:
-                        parent = props.get_mesh_prop_owner(context.active_object)
+                current_anim_data = get_animation_data_with_action(context.active_object)
+                remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
+                if current_anim_data is not None:
+                    current_action = current_anim_data.action
+                else:
+                    parent = context.active_object.parent
+                    if parent is not None:
                         parent_anim_data = get_animation_data_with_action(parent)
                         if parent_anim_data is not None:
                             current_action = parent_anim_data.action
-                else:
-                    remote_prop_owner = props.get_mesh_prop_owner(context.active_object)
-                    if remote_prop_owner is None:
-                        layout.row().label(text='Mesh is not parented to an armature', icon='ERROR')
-                    else:
-                        current_anim_data = get_animation_data_with_action(remote_prop_owner)
-                        if current_anim_data is not None:
-                            current_action = current_anim_data.action
                 if current_action is not None:
                     layout.row().prop(current_action, 'name', text='Action')
                     row = layout.row()
                     row.prop(context.active_object, 'dow_force_invisible')
                     op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
                     op.mesh_name = context.active_object.name
-                if context.scene.dow_use_slotted_actions:
+                if mesh_use_slotted_actions(context.active_object, 'visibility'):
                     layout.row().prop(context.active_object, 'color', index=3, text='visibility')
                 elif current_action:
                     make_prop_row(
@@ -506,10 +605,8 @@ class DowTools(bpy.types.Panel):
         layout.row().prop(context.scene, 'dow_update_animations')
         layout.row().prop(context.scene, 'dow_autoswitch_actions')
         if context.mode == 'OBJECT':
-            if not context.scene.dow_use_slotted_actions:
-                layout.row().operator(DOW_OT_attach_object.bl_idname)
-                layout.row().operator(DOW_OT_detach_object.bl_idname)
             layout.row().operator(DOW_OT_create_shadow.bl_idname)
+            layout.row().operator(DOW_OT_autosplit_mesh.bl_idname)
         if context.mode in ('POSE', 'EDIT_ARMATURE'):
             layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
 
@@ -533,7 +630,8 @@ class DowMaterialTools(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         mat = context.active_object.active_material
-        if context.scene.dow_use_slotted_actions:
+        remote_prop_owner = props.get_material_prop_owner(mat)
+        if remote_prop_owner is None:
             node = None
             if mat.node_tree is not None:
                 node = mat.node_tree.nodes.get('Mapping')
@@ -551,7 +649,6 @@ class DowMaterialTools(bpy.types.Panel):
                 row.context_pointer_set(name='mat', data=mat)
                 row.operator(DOW_OT_setup_uv_mapping.bl_idname, text=f'Set up "uv_offset"')
         else:
-            remote_prop_owner = props.get_material_prop_owner(mat)
             if remote_prop_owner is None:
                 layout.row().label(text='Material is not parented to an armature', icon='ERROR')
             else:
@@ -682,6 +779,7 @@ def register():
     bpy.utils.register_class(DOW_OT_attach_object)
     bpy.utils.register_class(DOW_OT_detach_object)
     bpy.utils.register_class(DOW_OT_create_shadow)
+    bpy.utils.register_class(DOW_OT_autosplit_mesh)
     bpy.utils.register_class(DOW_OT_convert_to_marker)
     bpy.utils.register_class(DOW_OT_select_all_actions)
     bpy.utils.register_class(DOW_UL_action_settings)
@@ -760,6 +858,7 @@ def unregister():
     bpy.utils.unregister_class(DOW_UL_action_settings)
     bpy.utils.unregister_class(DOW_OT_select_all_actions)
     bpy.utils.unregister_class(DOW_OT_convert_to_marker)
+    bpy.utils.unregister_class(DOW_OT_autosplit_mesh)
     bpy.utils.unregister_class(DOW_OT_create_shadow)
     bpy.utils.unregister_class(DOW_OT_detach_object)
     bpy.utils.unregister_class(DOW_OT_attach_object)
