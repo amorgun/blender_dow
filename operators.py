@@ -214,8 +214,6 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
         )
 
     def execute(self, context):
-        min_poly = 16
-        seen_meshes = [o for o in bpy.data.objects if o.type == 'MESH']
         for obj in list(context.selected_objects):
             if not (obj.type == 'MESH' and not utils.can_be_force_skinned(obj)):
                 continue
@@ -255,7 +253,8 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                 obj_copy = obj.copy()
                 obj_copy.data = obj.data.copy()
                 obj_copy.name = vertex_group.name
-                bpy.data.collections[0].objects.link(obj_copy)
+                for c in obj.users_collection:
+                    c.objects.link(obj_copy)
                 bm = bmesh.new()
                 bm.from_mesh(obj_copy.data)
                 bm.verts.ensure_lookup_table()
