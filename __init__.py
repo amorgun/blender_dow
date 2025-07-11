@@ -53,6 +53,12 @@ class DOW_OT_setup_data_path_from_module(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
+def update_autoswitch_actions(self, context):
+    if context.scene.dow_autoswitch_actions == 'DEFAULT':
+        context.scene.dow_autoswitch_actions_view = self.autoswitch_actions
+        context.scene.dow_autoswitch_actions = 'DEFAULT'
+
+
 class AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
@@ -63,6 +69,13 @@ class AddonPreferences(bpy.types.AddonPreferences):
         default=str((pathlib.Path(
             'C:/Program Files' if platform.system() == 'Windows' else '~/.local/share/Steam/steamapps/common'
         ) / 'Dawn of War/My_Mod').expanduser()),
+    )
+
+    autoswitch_actions: bpy.props.BoolProperty(
+        name='Sync switch actions',
+        description='Enable actions autoswitch all opened files',
+        default=True,
+        update=update_autoswitch_actions,
     )
 
     primary_color: bpy.props.FloatVectorProperty(
@@ -119,6 +132,7 @@ class AddonPreferences(bpy.types.AddonPreferences):
         op = self.layout.operator(DOW_OT_setup_data_path_from_module.bl_idname)
         if mod_folder.is_dir():
             op.directory = str(mod_folder.parent)
+        self.layout.row().prop(self, 'autoswitch_actions')
 
         teamcolor_panel_header, teamcolor_panel = self.layout.panel('default_teamcolor')
         teamcolor_panel_header.label(text='Default teamcolor')
@@ -223,8 +237,6 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                             if space.type == 'VIEW_3D':
                                 space.shading.type = 'MATERIAL'
                     operators.init_dow_props()
-                    context.scene.dow_autoswitch_actions = True
-                    context.scene.dow_use_slotted_actions = True
                     context.scene.dow_update_animations = True
                 finally:
                     for message_lvl, message in loader.messages:

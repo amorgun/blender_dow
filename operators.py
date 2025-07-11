@@ -578,12 +578,22 @@ def set_stale(self, val):
     set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name, obj_name=self.name)
 
 
+def get_autoswitch_actions(self):
+    return self['autoswitch_actions']
+
+
+def set_autoswitch_actions(self, val):
+    self['autoswitch_actions'] = val
+    bpy.context.scene.dow_autoswitch_actions = 'TRUE' if val else 'FALSE'
+
+
 class DowTools(bpy.types.Panel):
     bl_label = 'DoW Tools'
     bl_idname = 'VIEW3D_PT_dow_tools'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'DoW'
+
 
     def draw(self, context):
         layout = self.layout
@@ -634,7 +644,7 @@ class DowTools(bpy.types.Panel):
                 layout.row().prop(context.active_pose_bone, 'dow_stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
-        layout.row().prop(context.scene, 'dow_autoswitch_actions')
+        layout.row().prop(context.scene, 'dow_autoswitch_actions_view')
         if context.mode == 'OBJECT':
             layout.row().operator(DOW_OT_create_shadow.bl_idname)
             layout.row().operator(DOW_OT_autosplit_mesh.bl_idname)
@@ -774,7 +784,7 @@ def action_change_listener(scene, depsgraph):
         if action.session_uid == obj.dow_last_action:
             continue
         obj.dow_last_action = action.session_uid
-        if not scene.dow_autoswitch_actions:
+        if not scene.dow_autoswitch_actions_view:
             continue
         for d in utils.iter_animatable():
             if (animation_data := get_animation_data_with_action(d)) is None:
@@ -787,6 +797,10 @@ def action_change_listener(scene, depsgraph):
 
 @bpy.app.handlers.persistent
 def init_dow_props(filename: str = ''):
+    if bpy.context.scene.dow_autoswitch_actions == 'DEFAULT':
+        prefs = bpy.context.preferences.addons[__package__].preferences
+        bpy.context.scene.dow_autoswitch_actions_view = prefs.autoswitch_actions
+        bpy.context.scene.dow_autoswitch_actions = 'DEFAULT'
     for obj in bpy.data.objects:
         if obj.type == 'ARMATURE' and obj.pose:
             for b in obj.pose.bones:
@@ -843,12 +857,20 @@ def register():
         description='Automatically update all actions on mesh and bone renames',
         default=False,
     )
-    bpy.types.Scene.dow_autoswitch_actions = bpy.props.BoolProperty(
-        name='Sync switch actions',
-        description='Automatically switch actions for all animated objects',
-        default=False,
+    bpy.types.Scene.dow_autoswitch_actions = bpy.props.EnumProperty(
+        items=[
+            ('DEFAULT', 'Default', 'Use Addon config'),
+            ('TRUE', 'True', ''),
+            ('FALSE', 'False', ''),
+        ],
+        default='DEFAULT',
     )
-    bpy.types.Scene.dow_use_slotted_actions = bpy.props.BoolProperty(default=False)
+    bpy.types.Scene.dow_autoswitch_actions_view = bpy.props.BoolProperty(
+        name='Sync switch actions',
+        description='Automatically  switch actions for all animated objects simultaneously',
+        get=get_autoswitch_actions,
+        set=set_autoswitch_actions,
+    )
     bpy.app.handlers.depsgraph_update_post.append(rename_listener)
     bpy.app.handlers.depsgraph_update_post.append(action_change_listener)
     bpy.app.handlers.load_post.append(init_dow_props)
@@ -863,7 +885,6 @@ def unregister():
         h for h in bpy.app.handlers.depsgraph_update_post
         if h not in (rename_listener, action_change_listener)
     ]
-    del bpy.types.Scene.dow_use_slotted_actions
     del bpy.types.Scene.dow_autoswitch_actions
     del bpy.types.Scene.dow_update_animations
     del bpy.types.PoseBone.dow_stale
