@@ -648,17 +648,14 @@ class DowMaterialTools(bpy.types.Panel):
                 row.context_pointer_set(name='mat', data=mat)
                 row.operator(DOW_OT_setup_uv_mapping.bl_idname, text=f'Set up "uv_offset"')
         else:
-            if remote_prop_owner is None:
-                layout.row().label(text='Material is not parented to an armature', icon='ERROR')
-            else:
-                for prop in props.REMOTE_PROPS['MATERIAL']:
-                    make_prop_row(
-                        layout,
-                        remote_prop_owner,
-                        prop_name=props.create_prop_name(prop, mat.name),
-                        display_name=prop,
-                        driver_obj=mat,
-                    )
+            for prop in props.REMOTE_PROPS['MATERIAL']:
+                make_prop_row(
+                    layout,
+                    remote_prop_owner,
+                    prop_name=props.create_prop_name(prop, mat.name),
+                    display_name=prop,
+                    driver_obj=mat,
+                )
         for prop in [
             'full_path',
             'internal',
