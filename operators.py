@@ -253,6 +253,33 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                 obj_copy = obj.copy()
                 obj_copy.data = obj.data.copy()
                 obj_copy.name = vertex_group.name
+                if obj.animation_data is not None:
+                    obj_copy.animation_data_clear()
+                    obj_copy.animation_data_create()
+                    orig_action = obj.animation_data.action
+                    for action in bpy.data.actions:
+                        obj.animation_data.action = action
+                        obj_copy.animation_data.action = action
+                        channelbag_orig = anim_utils.action_get_channelbag_for_slot(action, obj.animation_data.action_slot)
+                        if channelbag_orig is None:
+                            continue
+                        channelbag_new = anim_utils.action_get_channelbag_for_slot(action, obj_copy.animation_data.action_slot)
+                        obj_copy.animation_data.action_slot = action.slots.new(id_type='OBJECT', name=obj_copy.name)
+                        channelbag_new = action.layers[0].strips[0].channelbags.new(obj_copy.animation_data.action_slot)
+                        new_fcurves = channelbag_new.fcurves
+                        for fcurve in list(channelbag_orig.fcurves):
+                            if fcurve.is_empty:
+                                continue
+                            new_fcurve = new_fcurves.new(fcurve.data_path, index=fcurve.array_index)
+                            if fcurve.group is not None:
+                                group_data = obj_copy.animation_data.action.groups.get(fcurve.group.name)
+                                if group_data is None:
+                                    group_data = obj_copy.animation_data.action.groups.new(fcurve.group.name)
+                                new_fcurve.group = group_data
+                            for k in fcurve.keyframe_points:
+                                new_fcurve.keyframe_points.insert(*k.co)
+                    obj.animation_data.action = orig_action
+                    obj_copy.animation_data.action = orig_action
                 for c in obj.users_collection:
                     c.objects.link(obj_copy)
                 bm = bmesh.new()
@@ -368,7 +395,10 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
     def poll(cls, context):
         return (
             context.active_object.type == 'MESH'
-            and props.get_mesh_prop_owner(context.active_object) is not None
+            and (
+                mesh_use_slotted_actions(context.active_object, 'force_invisible')
+                or props.get_mesh_prop_owner(context.active_object) is not None
+            )
         )
 
     def execute(self, context):
@@ -440,10 +470,12 @@ def get_fcurve_flag(anim_data, data_paths, default):
     return default
 
 
-def set_fcurve_flag(anim_data, data_paths, value, default, group):
+def set_fcurve_flag(anim_data, data_paths, value, default, group: str, obj_name: str):
     action = anim_data.action
     channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
     if channelbag is None:
+        if anim_data.action_slot is None:
+            anim_data.action_slot = action.slots.new(id_type='OBJECT', name=obj_name)
         channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
     fcurves = channelbag.fcurves
     for fcurve in list(fcurves):
@@ -519,7 +551,7 @@ def _set_force_invisible_inner(obj, val, action=None):
         final_action = anim_data.action
         if action is not None:
             anim_data.action = action
-    set_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group)
+    set_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group, obj_name=obj.name)
     anim_data.action = final_action
 
 
@@ -543,7 +575,7 @@ def set_stale(self, val):
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return
-    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name)
+    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name, obj_name=self.name)
 
 
 class DowTools(bpy.types.Panel):
