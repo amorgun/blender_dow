@@ -116,3 +116,10 @@ def iter_animatable():
         yield i
         if (node_tree := getattr(i, 'node_tree', None)) is not None:
             yield node_tree
+
+def get_armature(mesh_obj):
+    if mesh_obj.parent is not None and mesh_obj.parent.type == 'ARMATURE':
+        return mesh_obj.parent
+    for m in mesh_obj.modifiers:
+        if m.type == 'ARMATURE':
+            return m.object

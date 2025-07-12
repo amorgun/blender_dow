@@ -206,6 +206,15 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
         default=16,
     )
 
+    tolerance: bpy.props.FloatProperty(
+        name='Tolerance',
+        description='The maximum difference for the vertex weight to be considered fully attached to a bone',
+        default=1e-4,
+        min=0,
+        soft_max=1,
+        precision=4,
+    )
+
     @classmethod
     def poll(cls, context):
         return any(
@@ -218,20 +227,23 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
             if not (obj.type == 'MESH' and not utils.can_be_force_skinned(obj)):
                 continue
             bones = None
-            for m in obj.modifiers:
-                if m.type == 'ARMATURE':
-                    bones = {b.name for b in m.object.data.bones}
+            armature = utils.get_armature(obj)
+            if armature is not None:
+                bones = {b.name for b in armature.data.bones}
             vert2group = {}
             for v in obj.data.vertices:
                 groups = v.groups
                 if bones is not None:
-                    groups = [g for g in groups if obj.vertex_groups[g.group].name in bones and g.weight > 1e-4]
-                if len(groups) != 1:
+                    groups = [g for g in groups if obj.vertex_groups[g.group].name in bones]
+                groups = [g for g in groups if g.weight > 1e-4]
+                groups.sort(key=lambda x: x.weight, reverse=True)
+                if len(groups) == 0:
                     continue
-                if groups[0].weight < 1 - 1e-4:
+                if groups[0].weight < 1 - self.tolerance:
                     continue
                 vert2group[v.index] = groups[0].group
             poly_groups = {}
+            extracted_groups = {}
             for p in obj.data.polygons:
                 g = vert2group.get(p.vertices[0])
                 if g is None:
@@ -239,6 +251,7 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                 if any(vert2group.get(v) != g for v in p.vertices):
                     continue
                 poly_groups.setdefault(g, []).append(p.index)
+                extracted_groups.setdefault(g, set()).update(p.vertices)
 
             def remove_unused(bm):
                 verts = [v for v in bm.verts if not v.link_faces]
@@ -255,7 +268,7 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                 obj_copy.name = vertex_group.name
                 if obj.animation_data is not None:
                     obj_copy.animation_data_clear()
-                    obj_copy.animation_data_create()
+                    obj_copy.animation_datpoly_groupsa_create()
                     orig_action = obj.animation_data.action
                     for action in bpy.data.actions:
                         obj.animation_data.action = action
@@ -272,9 +285,9 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                                 continue
                             new_fcurve = new_fcurves.new(fcurve.data_path, index=fcurve.array_index)
                             if fcurve.group is not None:
-                                group_data = obj_copy.animation_data.action.groups.get(fcurve.group.name)
+                                group_data = channelbag_new.groups.get(fcurve.group.name)
                                 if group_data is None:
-                                    group_data = obj_copy.animation_data.action.groups.new(fcurve.group.name)
+                                    group_data = channelbag_new.groups.new(fcurve.group.name)
                                 new_fcurve.group = group_data
                             for k in fcurve.keyframe_points:
                                 new_fcurve.keyframe_points.insert(*k.co)
@@ -294,6 +307,19 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                         removed_faces.add(p.index)
                 remove_unused(bm)
                 bm.to_mesh(obj_copy.data)
+                if bones is not None:
+                    vertex_group_copy = obj_copy.vertex_groups[vertex_group.name]
+                    for g in obj_copy.vertex_groups:
+                        if g.name in bones and g != vertex_group_copy:
+                            obj_copy.vertex_groups.remove(g)
+                        vertex_group_copy.add([v.index for v in obj_copy.data.vertices], 1, 'REPLACE')
+            if bones is not None:
+                for group_idx, verts in extracted_groups.items():
+                    for group in obj.vertex_groups:
+                        if group.index == group_idx:
+                            group.add(list(verts), 1, 'REPLACE')
+                        elif group.name in bones:
+                            group.remove(list(verts))
             bm = bmesh.new()
             bm.from_mesh(obj.data)
             bm.verts.ensure_lookup_table()
@@ -487,7 +513,7 @@ def set_fcurve_flag(anim_data, data_paths, value, default, group: str, obj_name:
         fcurve = fcurves.new(data_paths[0])
         fcurve.keyframe_points.insert(0, float(value))
         if group is not None:
-            group_data = action.groups.get(group)
+            group_data = channelbag.groups.get(group)
             if group_data is None:
                 group_data = action.groups.new(group)
             fcurve.group = group_data
