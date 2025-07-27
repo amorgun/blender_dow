@@ -244,6 +244,68 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 
+class ImportWhmCli(bpy.types.Operator):
+    """Import Dawn of War .whm model file"""
+    bl_idname = 'import_model.dow_whm_cli'
+    bl_label = ''
+    bl_options = {'REGISTER'}
+
+    filepath: bpy.props.StringProperty(
+        name='Path to the model',
+        options={'HIDDEN'},
+        default='',
+    )
+
+    mod_folder: bpy.props.StringProperty(
+        name='Mod folder',
+        options={'HIDDEN'},
+        default='',
+    )
+
+    def execute(self, context):
+        bpy.ops.wm.read_homefile(app_template='')
+        for mesh in bpy.data.meshes:
+            bpy.data.meshes.remove(mesh)
+        for material in bpy.data.materials:
+            material.user_clear()
+            bpy.data.materials.remove(material)
+        for cam in bpy.data.cameras:
+            bpy.data.cameras.remove(cam)
+        addon_prefs = get_preferences(context)
+        if not context.scene.dow_export_filename:
+            context.scene.dow_export_filename = pathlib.Path(self.filepath).stem
+        loader = importer.WhmLoader(
+            pathlib.Path(self.mod_folder),
+            load_wtp=True,
+            stric_mode=False,
+            context=context,
+        )
+
+        import io
+        content = loader.layout.find(self.filepath).read_bytes()
+        with io.BytesIO(content) as f:
+            reader = importer.ChunkReader(f)
+            window = context.window_manager.windows[0]
+            with context.temp_override(window=window):
+                try:
+                    loader.load(reader)
+                    loader.apply_teamcolor({
+                        **{k: getattr(addon_prefs, f'{k}_color') for k in loader.TEAMCOLORABLE_LAYERS},
+                        **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
+                    })
+                    for area in context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            space = area.spaces.active
+                            if space.type == 'VIEW_3D':
+                                space.shading.type = 'MATERIAL'
+                    operators.init_dow_props()
+                    context.scene.dow_update_animations = True
+                finally:
+                    for message_lvl, message in loader.messages:
+                        self.report({message_lvl}, message)
+        return {'FINISHED'}
+
+
 class ImportTeamcolor(bpy.types.Operator, ImportHelper):
     """Import Dawn of War .teamcolour file"""
     bl_idname = 'import_model.dow_teamcolour'
@@ -467,6 +529,7 @@ class DOW_FH_whm_import(bpy.types.FileHandler):
 
 def register():
     bpy.utils.register_class(ImportWhm)
+    bpy.utils.register_class(ImportWhmCli)
     bpy.utils.register_class(ImportTeamcolor)
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
@@ -502,4 +565,5 @@ def unregister():
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
     bpy.utils.unregister_class(ImportTeamcolor)
+    bpy.utils.unregister_class(ImportWhmCli)
     bpy.utils.unregister_class(ImportWhm)
