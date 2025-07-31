@@ -228,7 +228,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                     loader.load(reader)
                     if self.load_wtp:
                         loader.apply_teamcolor({
-                            **{k: getattr(addon_prefs, f'{k.value}_color') for k in loader.TEAMCOLORABLE_LAYERS},
+                            **{k: getattr(addon_prefs, f'{k.value.lower()}_color') for k in loader.TEAMCOLORABLE_LAYERS},
                             **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
                         })
                     for area in context.screen.areas:
@@ -290,7 +290,7 @@ class ImportWhmCli(bpy.types.Operator):
                 try:
                     loader.load(reader)
                     loader.apply_teamcolor({
-                        **{k: getattr(addon_prefs, f'{k}_color') for k in loader.TEAMCOLORABLE_LAYERS},
+                        **{k: getattr(addon_prefs, f'{k.value.lower()}_color') for k in loader.TEAMCOLORABLE_LAYERS},
                         **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
                     })
                     for area in context.screen.areas:

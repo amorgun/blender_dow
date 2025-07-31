@@ -8,7 +8,7 @@ import bpy
 import mathutils
 
 from . import textures, utils, props
-from .chunky import ChunkReader
+from .chunky import ChunkReader, ChunkHeader
 from .dow_layout import DowLayout, LayoutPath, DirectoryPath
 
 
@@ -111,9 +111,23 @@ class WhmLoader:
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'FOLDTXTR': loaded_textures[current_chunk.name.lower()] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
-                case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, material_path, loaded_textures)
+                case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, current_chunk, material_path, loaded_textures)
                 case _: reader.skip(current_chunk.size)
         return material
+
+    def CH_FOLDSTXT(self, texture_path: str):  # Chunk Handler - Reference to an external rtx
+        self.loaded_resource_stats['attempted'] += 1
+        full_texture_path = f'{texture_path}.rtx'
+        texture_data = self.layout.find(full_texture_path)
+        if not texture_data:
+            self.messages.append(('WARNING', f'Cannot find texture file "{full_texture_path}"'))
+            self.loaded_resource_stats['errors'] += 1
+        return self.load_rtx(open_reader(texture_data))
+
+    def load_rtx(self, reader: ChunkReader):
+        reader.skip_relic_chunky()
+        current_chunk = reader.read_header('FOLDTXTR')
+        return self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
 
     def CH_FOLDTXTR(self, reader: ChunkReader, texture_path: str):  # Chunk Handler - Internal Texture
         for current_chunk in reader.iter_chunks():
@@ -146,23 +160,24 @@ class WhmLoader:
             image.use_fake_user = True
         return image
 
-    def CH_FOLDSHDR(self, reader: ChunkReader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
-        current_chunk = reader.read_header('DATAINFO')
-        num_images, *info_bytes = reader.read_struct('<2L 4B L x')
-
+    def CH_FOLDSHDR(self, reader: ChunkReader, header: ChunkHeader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
+        reader = reader.read_folder(header)
         channels = []
-        for _ in range(6):  # always 6
-            current_chunk = reader.read_header('DATACHAN')
-            channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
-            channel_texture_name = reader.read_str()
-            num_coords = reader.read_one('<4x l 4x')
-            for _ in range(4):  # always 4, not num_coords
-                for ref_idx in range(4):
-                    x, y = reader.read_struct('<2f')
-            channels.append({
-                'idx': channel_idx,
-                'texture_name': channel_texture_name,
-            })
+        for current_chunk in reader.iter_chunks():
+            match current_chunk.typeid:
+                case 'DATAINFO':
+                    num_images, *info_bytes = reader.read_struct('<2L 4B L x')
+                case 'DATACHAN':
+                    channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
+                    channel_texture_name = reader.read_str()
+                    num_coords = reader.read_one('<4x l 4x')
+                    for _ in range(4):  # always 4, not num_coords
+                        for ref_idx in range(4):
+                            x, y = reader.read_struct('<2f')
+                    channels.append({
+                        'idx': channel_idx,
+                        'texture_name': channel_texture_name,
+                    })
 
         if material_path in self.created_materials:
             return self.created_materials[material_path]
@@ -174,6 +189,7 @@ class WhmLoader:
         mat.use_nodes = True
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
+        node_final.inputs['Specular IOR Level'].default_value = 0
 
         node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
         node_uv.location = -800, 200
@@ -186,13 +202,15 @@ class WhmLoader:
         node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
         node_object_info.location = -600, 400
 
-        node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
-        node_calc_spec.data_type = 'RGBA'
-        node_calc_spec.clamp_result = True
-        node_calc_spec.inputs[0].default_value = 0
-        node_calc_spec.label = 'Apply spec'
-        node_calc_spec.location = -150, 400
-        links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
+        has_legacy_specular = any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
+        if has_legacy_specular:
+            node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
+            node_calc_spec.data_type = 'RGBA'
+            node_calc_spec.clamp_result = True
+            node_calc_spec.inputs[0].default_value = 0
+            node_calc_spec.label = 'Apply spec'
+            node_calc_spec.location = -150, 400
+            links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
 
         node_calc_alpha = mat.node_tree.nodes.new('ShaderNodeMath')
         node_calc_alpha.operation = 'MULTIPLY'
@@ -208,12 +226,16 @@ class WhmLoader:
                 continue
             channel_idx = channel['idx']
             inputs, node_label = {
-                0: ([node_calc_spec.inputs['A'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
-                1: ([node_calc_spec.inputs['Factor'], node_final.inputs['Specular IOR Level']], textures.MaterialLayers.SPECULAR_MASK),
-                2: ([node_calc_spec.inputs['B']], textures.MaterialLayers.SPECULAR_REFLECTION),
+                0: ([node_calc_spec.inputs['A'] if has_legacy_specular else node_final.inputs['Base Color'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
+                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_final.inputs['Specular IOR Level'], node_final.inputs['Specular Tint']], textures.MaterialLayers.SPECULAR_MASK),
+                2: ([node_calc_spec.inputs['B']] if has_legacy_specular else [], textures.MaterialLayers.SPECULAR_REFLECTION),
                 3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION),
                 4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
+                5: [[], None],  # Unused
+                6: [[], None],  # TODO Probably emission color
             }[channel_idx]
+            if node_label is None:
+                continue
             node_tex = created_tex_nodes.get(texture_name)
             if not node_tex:
                 node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
@@ -396,7 +418,6 @@ class WhmLoader:
             links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_color'])
             links.new(node_tex.outputs[1], aply_teamcolor.inputs[f'{layer_name}_alpha'])
 
-        material.node_tree.nodes[0].inputs['Specular IOR Level'].default_value = 0
         if textures.TeamcolorLayers.DEFAULT in loaded_textures:
             for node in material.node_tree.nodes:
                 if node.label == 'Apply spec':
@@ -1200,9 +1221,12 @@ class WhmLoader:
     def load(self, reader: ChunkReader):
         self._reset()
         reader.skip_relic_chunky()
-        header = reader.read_header('DATAFBIF')  # Read 'File Burn Info' Header
-        reader.skip(header.size)       # Skip 'File Burn Info' Chunk
-        header = reader.read_header('FOLDRSGM')  # Skip 'Folder SGM' Header
+        header = reader.read_header()
+        if header.typeid == 'DATAFBIF':  # Read 'File Burn Info' Header
+            reader.skip(header.size)       # Skip 'File Burn Info' Chunk
+            header = reader.read_header('FOLDRSGM')  # Skip 'Folder SGM' Header
+        else:
+            assert header.typeid == 'FOLDRSGM', f'Expected FOLDRSGM, got {header.typeid}'
         self.model_root_collection = bpy.data.collections.new(header.name)
         self.bpy_context.scene.collection.children.link(self.model_root_collection)
         self.model_root_collection.objects.link(self.armature_obj)
@@ -1212,10 +1236,12 @@ class WhmLoader:
         for current_chunk in reader.iter_chunks():  # Read Chunks Until End Of File
             match current_chunk.typeid:
                 case "DATASSHR": self.CH_DATASSHR(reader)  # DATASSHR - Texture Data
+                case "FOLDSTXT":  # FOLDSTXT - Reference to an external rtx
+                    internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
                 case "FOLDTXTR":  # FOLDTXTR - Internal Texture
                     internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
                 case "FOLDSHDR":  # FOLDSHDR - Internal Material
-                    mat = self.CH_FOLDSHDR(reader, current_chunk.name, internal_textures)
+                    mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
                     props.setup_property(mat, 'internal', True)
                 case "DATASKEL": self.CH_DATASKEL(reader, xref=False)  # DATASKEL - Skeleton Data
                 case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
