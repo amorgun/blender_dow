@@ -600,6 +600,8 @@ def set_stale(self, val):
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return
+    if anim_data.action_slot is None:
+        anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name='Skeleton')
     set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name, obj_name=self.name)
 
 
