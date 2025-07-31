@@ -498,11 +498,9 @@ def get_fcurve_flag(anim_data, data_paths, default):
 
 def set_fcurve_flag(anim_data, data_paths, value, default, group: str, obj_name: str):
     action = anim_data.action
+    utils.ensure_channelbag_exists(action, anim_data.action_slot)
+    # slot = action.slots.new(id_type='OBJECT', name="Suzanne")
     channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
-    if channelbag is None:
-        if anim_data.action_slot is None:
-            anim_data.action_slot = action.slots.new(id_type='OBJECT', name=obj_name)
-        channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
     fcurves = channelbag.fcurves
     for fcurve in list(fcurves):
         if fcurve.is_empty:
@@ -572,11 +570,12 @@ def _set_force_invisible_inner(obj, val, action=None):
         if anim_data is None:
             anim_data = animated_obj.animation_data_create()
         final_action = anim_data.action = action if action is not None else parent_anim_data.action
-        anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name=obj.name)
     else:
         final_action = anim_data.action
         if action is not None:
             anim_data.action = action
+    if anim_data.action_slot is None:
+        anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name=obj.name)
     set_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group, obj_name=obj.name)
     anim_data.action = final_action
 
@@ -605,7 +604,11 @@ def set_stale(self, val):
 
 
 def get_autoswitch_actions(self):
-    return self['autoswitch_actions']
+    res = self.get('autoswitch_actions')
+    if res is not None:
+        return res
+    prefs = bpy.context.preferences.addons[__package__].preferences
+    return prefs.autoswitch_actions
 
 
 def set_autoswitch_actions(self, val):
@@ -650,6 +653,10 @@ class DowTools(bpy.types.Panel):
                     row = layout.row()
                     row.prop(context.active_object, 'dow_force_invisible')
                     op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
+                    op.mesh_name = context.active_object.name
+                else:
+                    row = layout.row()
+                    op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='Batch set force_invisible', icon='OPTIONS')
                     op.mesh_name = context.active_object.name
                 if mesh_use_slotted_actions(context.active_object, 'visibility'):
                     layout.row().prop(context.active_object, 'color', index=3, text='visibility')
@@ -813,7 +820,6 @@ def action_change_listener(scene, depsgraph):
         if not scene.dow_autoswitch_actions_view:
             continue
 
-        print(f'Swiitch action to {action.name}')
         for d in utils.iter_animatable():
             if (animation_data := get_animation_data_with_action(d)) is None:
                 continue

@@ -123,3 +123,17 @@ def get_armature(mesh_obj):
     for m in mesh_obj.modifiers:
         if m.type == 'ARMATURE':
             return m.object
+
+
+def ensure_channelbag_exists(action, slot):
+    try:
+        layer = action.layers[0]
+    except IndexError:
+        layer = action.layers.new("Layer")
+
+    try:
+        strip = layer.strips[0]
+    except IndexError:
+        strip = layer.strips.new(type='KEYFRAME')
+
+    return strip.channelbag(slot, ensure=True)
