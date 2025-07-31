@@ -228,7 +228,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                     loader.load(reader)
                     if self.load_wtp:
                         loader.apply_teamcolor({
-                            **{k: getattr(addon_prefs, f'{k}_color') for k in loader.TEAMCOLORABLE_LAYERS},
+                            **{k: getattr(addon_prefs, f'{k.value}_color') for k in loader.TEAMCOLORABLE_LAYERS},
                             **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
                         })
                     for area in context.screen.areas:
@@ -373,6 +373,12 @@ class ExportModel:
         name='Default texture folder',
     )
 
+    teamcolored_rtx_suffix: bpy.props.StringProperty(
+        default='_default_0',
+        name='Teamcolored rtx suffix',
+        description='The suffix for exported rtx files with teamcolor baked in',
+    )
+
     data_location: bpy.props.EnumProperty(
         name='Data store location',
         description='How to store textures',
@@ -419,7 +425,7 @@ class ExportModel:
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, f'export_{self.filename_ext[1:]}',
                   'filepath', 'object_name', 'meta', 'convert_textures', 'max_texture_size',
-                  'default_texture_path', 'data_location', 'store_layout',
+                  'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout',
                   'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
                   )
         filepath = pathlib.Path(self.filepath)
@@ -436,6 +442,7 @@ class ExportModel:
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
+                                   teamcolored_rtx_suffix=self.teamcolored_rtx_suffix,
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
                                    vertex_normal_merge_threshold=self.vertex_normal_merge_threshold,

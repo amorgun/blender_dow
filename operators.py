@@ -812,6 +812,8 @@ def action_change_listener(scene, depsgraph):
         obj.dow_last_action = action.session_uid
         if not scene.dow_autoswitch_actions_view:
             continue
+
+        print(f'Swiitch action to {action.name}')
         for d in utils.iter_animatable():
             if (animation_data := get_animation_data_with_action(d)) is None:
                 continue

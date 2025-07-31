@@ -13,6 +13,7 @@ import tempfile
 import bpy
 import mathutils
 from bpy_extras import anim_utils
+from PIL import Image as PilImage
 
 from . import textures, utils, props
 from .chunky import ChunkWriter
@@ -164,6 +165,8 @@ class Exporter:
             default_texture_path: str = '',
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
+            export_rtx: bool = True,
+            teamcolored_rtx_suffix: str = '_default_0',
             vertex_position_merge_threshold: float = 0,
             vertex_normal_merge_threshold: float = 0.01,
             uv_merge_threshold: float = 0.001,
@@ -177,6 +180,8 @@ class Exporter:
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
+        self.export_rtx = export_rtx
+        self.teamcolored_rtx_suffix = teamcolored_rtx_suffix
         self.vertex_position_merge_threshold = vertex_position_merge_threshold
         self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
         self.uv_merge_threshold = uv_merge_threshold
@@ -258,29 +263,37 @@ class Exporter:
         exported_nodes = {node.label: node
                         for node in mat.node_tree.nodes
                         if node.bl_idname == 'ShaderNodeTexImage'
-                        and node.label in ('diffuse', 'specularity', 'reflection', 'self_illumination', 'opacity')}
+                        and node.label in (
+                            textures.MaterialLayers.DIFFUSE,
+                            textures.MaterialLayers.SPECULAR_MASK,
+                            textures.MaterialLayers.SPECULAR_REFLECTION,
+                            textures.MaterialLayers.SELF_ILLUMUNATION,
+                            textures.MaterialLayers.OPACITY,
+                        )}
         for slot, input_idname in [
-            ('diffuse', 'Base Color'),
-            ('specularity', 'Specular IOR Level'),
-            ('reflection', 'Specular Tint'),
-            ('self_illumination', 'Emission Strength'),
+            (textures.MaterialLayers.DIFFUSE, 'Base Color'),
+            (textures.MaterialLayers.SPECULAR_MASK, 'Specular IOR Level'),
+            (textures.MaterialLayers.SPECULAR_REFLECTION, 'Specular Tint'),
+            (textures.MaterialLayers.SELF_ILLUMUNATION, 'Emission Strength'),
         ]:
-            if slot not in exported_nodes:
-                for link in mat.node_tree.links:
-                    if (
-                        link.to_node.bl_idname == 'ShaderNodeBsdfPrincipled'
-                        and link.to_socket.label == input_idname
-                        and link.from_node.bl_idname == 'ShaderNodeTexImage'
-                    ):
+            for link in mat.node_tree.links:
+                if (
+                    link.to_node.bl_idname == 'ShaderNodeBsdfPrincipled'
+                    and link.to_socket.identifier == input_idname
+                    and link.from_node.bl_idname == 'ShaderNodeTexImage'
+                ):
+                    if slot not in exported_nodes:
                         exported_nodes[slot] = link.from_node
-                        break
-        if 'diffuse' not in exported_nodes:
+                    elif exported_nodes.get(slot) != link.from_node:
+                        self.messages.append(('WARNING', f'Multiple candidates found for {slot.value.upper()} layer in material {mat.name}'))
+                    break
+        if textures.MaterialLayers.DIFFUSE not in exported_nodes:
             for node in mat.node_tree.nodes:
                 if node.bl_idname == 'ShaderNodeTexImage':
-                    exported_nodes['diffuse'] = node
+                    exported_nodes[textures.MaterialLayers.DIFFUSE] = node
                     break
 
-        if 'diffuse' not in exported_nodes:
+        if textures.MaterialLayers.DIFFUSE not in exported_nodes:
             self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
             return
 
@@ -297,14 +310,43 @@ class Exporter:
         self.exported_materials[mat.name] = str(mat_path)
 
         teamcolor_node_labels = {
-            f'color_layer_{slot}' for slot in ('primary', 'secondary', 'trim', 'weapons', 'eyes' ,'dirt', 'default')
-        } | {'badge', 'banner'}
-        teamcolor_image_nodes = {
-            node.label: node
-            for node in mat.node_tree.nodes
-            if node.bl_idname == 'ShaderNodeTexImage'
-                and node.label in teamcolor_node_labels
+            f'color_layer_{slot.value}' if slot not in (
+                textures.TeamcolorLayers.BADGE,
+                textures.TeamcolorLayers.BANNER,
+            ) else slot.value for slot in textures.TeamcolorLayers
         }
+        teamcolor_image_nodes = {}
+        for node in mat.node_tree.nodes:
+            if not (
+                node.bl_idname == 'ShaderNodeTexImage'
+                and node.label in teamcolor_node_labels
+                and not node.get('PLACEHOLDER', False)
+            ):
+                continue
+            try:
+                teamcolor_image_nodes[textures.TeamcolorLayers(
+                    node.label[len('color_layer_') if node.label.startswith('color_layer_') else 0:]
+                )] = node
+            except KeyError:
+                self.messages.append(('WARNING', f'Unknown layer label "{node.label}" in material {mat.name}'))
+                continue
+        for link in mat.node_tree.links:
+            if (
+                link.to_node.bl_idname == 'ShaderNodeGroup'
+                and link.to_node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None)
+                and link.to_socket.identifier.endswith('_value')
+                and link.from_node.bl_idname == 'ShaderNodeTexImage'
+                and not link.from_node.get('PLACEHOLDER', False)
+            ):
+                try:
+                    slot = textures.TeamcolorLayers(link.to_socket.identifier[:-len('_value')])
+                except KeyError:
+                    continue
+                if slot not in teamcolor_image_nodes:
+                    teamcolor_image_nodes[slot] = link.from_node
+                elif teamcolor_image_nodes.get(slot) != link.from_node:
+                    self.messages.append(('WARNING', f'Multiple candidates found for {slot.value.upper()} layer in material {mat.name}'))
+
         teamcolor_badge_info = {
             node.label[len('badge_'):]: (
                 node.inputs['X'].default_value,
@@ -335,15 +377,39 @@ class Exporter:
                 self.paths.add_info(f'{mat_path}.rsh', rsh_path)
 
             wtp_path = self.paths.get_path(f'{mat_path}_default.wtp')
+            teamcolor_images = {k: v.image for k, v in teamcolor_image_nodes.items() if v}
             if self.export_wtp(
-                {k: v.image if v else v for k, v in teamcolor_image_nodes.items()},
+                teamcolor_images,
                 teamcolor_badge_info,
                 teamcolor_banner_info,
                 wtp_path,
-                mat_path,
-                mat.name,
             ):
                 self.paths.add_info(f'{mat_path}_default.wtp', wtp_path)
+            rtx_path = self.paths.get_path(f'{mat_path}{self.teamcolored_rtx_suffix}.rtx')
+
+            teamcolor_colors = {}
+            for node in mat.node_tree.nodes:
+                if node.bl_idname == 'ShaderNodeValToRGB' and node.label.startswith('color_'):
+                    try:
+                        key = textures.TeamcolorLayers(node.label[len('color_'):])
+                    except KeyError:
+                        continue
+                    teamcolor_colors[key] = mathutils.Color(node.color_ramp.elements[-1].color[:3]).from_scene_linear_to_srgb()()
+                if node.bl_idname == 'ShaderNodeGroup' and node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None):
+                    for key in textures.TeamcolorLayers:
+                        input_name = f'{key.value}_color'
+                        if input_name not in node.inputs:
+                            continue
+                        teamcolor_colors[key] = mathutils.Color(node.inputs[input_name].default_value[:3]).from_scene_linear_to_srgb()
+            if self.export_teamcolored_rtx(
+                teamcolor_images,
+                teamcolor_colors,
+                teamcolor_badge_info,
+                teamcolor_banner_info,
+                rtx_path,
+                mat.name,
+            ):
+                self.paths.add_info(f'{mat_path}{self.teamcolored_rtx_suffix}.rtx', rtx_path)
         else:
             for image_prefix, dst_suffix, images in [
                 ('', '.rsh', {
@@ -425,11 +491,11 @@ class Exporter:
     def write_rsh_chunks(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
         texture_declared_paths = {}
         known_keys = {
-            'diffuse': '',
-            'specularity': '_spec',
-            'reflection': '_reslect',
-            'self_illumination': '_self_illum',
-            'opacity': '_alpha',
+            textures.MaterialLayers.DIFFUSE: '',
+            textures.MaterialLayers.SPECULAR_MASK: '_spec',
+            textures.MaterialLayers.SPECULAR_REFLECTION: '_reflect',
+            textures.MaterialLayers.SELF_ILLUMUNATION: '_self_illum',
+            textures.MaterialLayers.OPACITY: '_alpha',
         }
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
@@ -440,44 +506,14 @@ class Exporter:
                 texture_declared_path = f'{declared_path}{path_suffix}'  # used for locating .wtp
                 texture_declared_paths[key] = texture_declared_path
 
-                texture_data = None
-                if image.packed_files:
-                    texture_data = image.packed_file.data
-                else:
-                    try:
-                        packed_image = image.copy()
-                        packed_image.pack()
-                        texture_data = packed_image.packed_file.data
-                        bpy.data.images.remove(packed_image)
-                    except Exception as e:
-                        self.messages.append(('WARNING', f'Error while converting {image.name}: {e!r}'))
-                        return False
-                texture_stream = io.BytesIO(texture_data)
+                pil_image = textures.img2pil(image)
+                if pil_image is None:
+                    self.messages.append(('WARNING', f'Error while converting {image.name}: {e!r}'))
+                    return False
 
-                from PIL import Image
-                import quicktex.dds
-                import quicktex.s3tc.bc1
-                import quicktex.s3tc.bc3
-
-                texture_stream.seek(0)
-                pil_image = Image.open(texture_stream)
                 pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
-                level = 10
-                color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
-                mode = color_mode.ThreeColor
-                bc1_encoder = quicktex.s3tc.bc1.BC1Encoder(level, mode)
-                bc3_encoder = quicktex.s3tc.bc3.BC3Encoder(level)
-                if 'A' not in pil_image.mode:
-                    has_alpha = False
-                else:
-                    alpha_hist = pil_image.getchannel('A').histogram()
-                    has_alpha = any([a > 0 for a in alpha_hist[:-1]])
-                    # TODO test for 1-bit alpha
                 tmp_dds_path = temp_dir / key
-                if has_alpha:
-                    quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(tmp_dds_path)
-                else:
-                    quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(tmp_dds_path)
+                textures.encode_dds(pil_image, tmp_dds_path)
                 texture_stream = tmp_dds_path.open('rb')
                 is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
 
@@ -516,9 +552,8 @@ class Exporter:
                                 writer.write_struct('<2f', *c)
         return True
 
-    def export_wtp(self, images: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
-        images = {k: v for k, v in images.items() if v and not v.get('PLACEHOLDER', False)}
-        if not any(images.values()) or images.get('color_layer_default') is None or images.get('color_layer_dirt') is None :
+    def export_wtp(self, images: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path) -> bool:
+        if images.get(textures.TeamcolorLayers.DEFAULT) is None or images.get(textures.TeamcolorLayers.DIRT) is None :
             return False
         with tempfile.TemporaryDirectory() as t:
             temp_dir = pathlib.Path(t)
@@ -571,18 +606,18 @@ class Exporter:
                                           (512, 512))  # FIXME
                     with writer.start_chunk('DATAINFO'):
                         writer.write_struct('<2L', width, height)
-                    for layer_idx, layer_name in [
-                        (0, 'primary'),
-                        (1, 'secondary'),
-                        (2, 'trim'),
-                        (3, 'weapons'),
-                        (4, 'eyes'),
-                        (5, 'dirt'),
+                    for layer_idx, layer in [
+                        (0, textures.TeamcolorLayers.PRIMARY),
+                        (1, textures.TeamcolorLayers.SECONDARY),
+                        (2, textures.TeamcolorLayers.TRIM),
+                        (3, textures.TeamcolorLayers.WEAPONS),
+                        (4, textures.TeamcolorLayers.EYES),
+                        (5, textures.TeamcolorLayers.DIRT),
                     ]:
-                        if not (img := images.get(f'color_layer_{layer_name}')):
+                        if not (img := images.get(layer)):
                             continue
                         with writer.start_chunk('DATAPTLD'):
-                            tmp_file = temp_dir / f'{layer_name}.tga'
+                            tmp_file = temp_dir / f'{layer.value}.tga'
                             try:
                                 image_to_tga(img, tmp_file, width, height, grayscale=True)
                             except Exception as e:
@@ -594,7 +629,7 @@ class Exporter:
                             writer.write_struct('<2L', layer_idx, len(tga_data))
                             writer.write(tga_data)
 
-                    if default_image := images.get('color_layer_default'):
+                    if default_image := images.get(textures.TeamcolorLayers.DEFAULT):
                         with writer.start_chunk('FOLDIMAG'):
                             with writer.start_chunk('DATAATTR'):
                                 writer.write_struct('<4L', 0, width, height, 1)
@@ -617,6 +652,92 @@ class Exporter:
                             continue
                         with writer.start_chunk(chunk_name):
                             writer.write_struct('<4f', *data.get('position', [0, 0]), *data.get('display_size', default_size))
+            dst_path.parent.mkdir(exist_ok=True, parents=True)
+            shutil.copy(exported_file, dst_path)
+        return True
+
+    def export_teamcolored_rtx(self, teamcolor_images: dict, teamcolor_colors: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, mat_name: str) -> bool:
+        from PIL import ImageChops, ImageOps
+
+        base_image = teamcolor_images.get(textures.TeamcolorLayers.DEFAULT)
+        if base_image is None:
+            return False
+        base_image = textures.img2pil(base_image)
+        if base_image is None:
+            return False
+        result = PilImage.new('RGB', base_image.size)
+        for layer in [
+            textures.TeamcolorLayers.PRIMARY,
+            textures.TeamcolorLayers.SECONDARY,
+            textures.TeamcolorLayers.TRIM,
+            textures.TeamcolorLayers.WEAPONS,
+            textures.TeamcolorLayers.EYES,
+        ]:
+            color = teamcolor_colors.get(layer)
+            mask = teamcolor_images.get(layer)
+            if color is None or mask is None:
+                continue
+            mask = textures.img2pil(mask)
+            if mask is None:
+                continue
+            result = ImageChops.add(result, ImageChops.overlay(mask.resize(base_image.size).convert('RGB'), PilImage.new('RGB', base_image.size, tuple(int(i * 255) for i in color))))
+        result = result.convert('RGBA')
+        for layer, data, default_size in [
+            (textures.TeamcolorLayers.BADGE, badge_info, (64, 64)),
+            (textures.TeamcolorLayers.BANNER, banner_info, (64, 96)),
+        ]:
+            pos = data.get('position')
+            if pos is None:
+                continue
+            size = data.get('display_size', default_size)
+            img = teamcolor_images.get(layer)
+            if img is None:
+                continue
+            img = textures.img2pil(img)
+            if img is None:
+                continue
+            img = img.transpose(PilImage.Transpose.FLIP_TOP_BOTTOM)
+            result.alpha_composite(img.resize(tuple(map(int, size))), tuple(map(int, pos)))
+        dirt_mask = teamcolor_images.get(textures.TeamcolorLayers.DIRT)
+        if dirt_mask is not None:
+            dirt_mask = textures.img2pil(dirt_mask)
+            if dirt_mask is not None:
+                result.paste(base_image, mask=dirt_mask.resize(base_image.size).convert('L'))
+
+        with tempfile.TemporaryDirectory() as t:
+            temp_dir = pathlib.Path(t)
+            exported_file = temp_dir / dst_path.name
+            with exported_file.open('wb') as f:
+                writer = ChunkWriter(f, {
+                    'FOLDTXTR': {
+                        'version': 1,
+                        'DATAHEAD': {'version': 1},
+                        'DATAINFO': {'version': 3},
+                        'FOLDIMAG': {
+                            'version': 1,
+                            'DATAATTR': {'version': 2},
+                            'DATADATA': {'version': 2},
+                        }
+                    }
+                })
+                result.thumbnail((self.max_texture_size, self.max_texture_size))
+                tmp_dds_path = temp_dir / 'exported.rtx'
+                textures.encode_dds(result, tmp_dds_path)
+                texture_stream = tmp_dds_path.open('rb')
+                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+                self.write_relic_chunky(writer)
+                with writer.start_chunk('FOLDTXTR', name=mat_name):
+                    with writer.start_chunk('DATAHEAD'):
+                        writer.write_struct('<2l', image_type, 1)  # num_images
+                    if self.make_oe_compatable_textures:
+                        with writer.start_chunk('DATAINFO'):
+                            writer.write_struct('<4l', image_type, width, height, 1)  # num_images
+                    with writer.start_chunk('FOLDIMAG'):
+                        with writer.start_chunk('DATAATTR'):
+                            writer.write_struct('<4l', image_format, width, height, num_mips)
+                        with writer.start_chunk('DATADATA'):
+                            with texture_stream:
+                                shutil.copyfileobj(texture_stream, writer)
             dst_path.parent.mkdir(exist_ok=True, parents=True)
             shutil.copy(exported_file, dst_path)
         return True

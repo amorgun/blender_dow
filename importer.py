@@ -31,7 +31,13 @@ class SkinVertice:
 
 
 class WhmLoader:
-    TEAMCOLORABLE_LAYERS = {'primary', 'secondary', 'trim', 'weapons', 'eyes'}
+    TEAMCOLORABLE_LAYERS = {
+        textures.TeamcolorLayers.PRIMARY,
+        textures.TeamcolorLayers.SECONDARY, 
+        textures.TeamcolorLayers.TRIM,
+        textures.TeamcolorLayers.WEAPONS,
+        textures.TeamcolorLayers.EYES,
+    }
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
 
     def __init__(self, root: pathlib.Path, load_wtp: bool = True, stric_mode: bool = True, context=None):
@@ -163,7 +169,7 @@ class WhmLoader:
         material_name = pathlib.Path(material_path).name
         mat = bpy.data.materials.new(name=material_name)
         props.setup_property(mat, 'full_path', material_path)
-        mat.blend_method = 'CLIP'
+        mat.blend_method = 'CLIP'  # FIXME it doesn't work now
         mat.show_transparent_back = False
         mat.use_nodes = True
         links = mat.node_tree.links
@@ -202,11 +208,11 @@ class WhmLoader:
                 continue
             channel_idx = channel['idx']
             inputs, node_label = {
-                0: ([node_calc_spec.inputs['A'], node_final.inputs['Emission Color']], 'diffuse'),
-                1: ([node_calc_spec.inputs['Factor'], node_final.inputs['Specular IOR Level']], 'specularity'),
-                2: ([node_calc_spec.inputs['B']], 'reflection'),
-                3: ([node_final.inputs['Emission Strength']], 'self_illumination'),
-                4: ([node_final.inputs['Alpha']], 'opacity'),
+                0: ([node_calc_spec.inputs['A'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
+                1: ([node_calc_spec.inputs['Factor'], node_final.inputs['Specular IOR Level']], textures.MaterialLayers.SPECULAR_MASK),
+                2: ([node_calc_spec.inputs['B']], textures.MaterialLayers.SPECULAR_REFLECTION),
+                3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION),
+                4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
             }[channel_idx]
             node_tex = created_tex_nodes.get(texture_name)
             if not node_tex:
@@ -249,13 +255,13 @@ class WhmLoader:
         current_chunk = reader.read_header('DATAINFO')
         width, height = reader.read_struct('<2L')
         layer_names = {
-            0: 'primary',
-            1: 'secondary',
-            2: 'trim',
-            3: 'weapons',
-            4: 'eyes',
-            5: 'dirt',
-            -1: 'default',
+            0: textures.TeamcolorLayers.PRIMARY,
+            1: textures.TeamcolorLayers.SECONDARY,
+            2: textures.TeamcolorLayers.TRIM,
+            3: textures.TeamcolorLayers.WEAPONS,
+            4: textures.TeamcolorLayers.EYES,
+            5: textures.TeamcolorLayers.DIRT,
+            -1: textures.TeamcolorLayers.DEFAULT,
         }
         material_name = pathlib.Path(material_path).name
         default_image_size = width, height
@@ -266,7 +272,7 @@ class WhmLoader:
                 case 'DATAPTLD':
                     layer_in, data_size = reader.read_struct('<2L')
                     with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in]}.tga', 'wb') as f:
+                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in].value}.tga', 'wb') as f:
                             textures.write_tga(
                                 reader.stream, f, data_size, width, height, grayscale=True)
                         image = bpy.data.images.load(f.name)
@@ -280,7 +286,7 @@ class WhmLoader:
                     current_chunk = reader.read_header('DATADATA')
                     layer_in = -1
                     with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in]}.tga', 'wb') as f:
+                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in].value}.tga', 'wb') as f:
                             textures.write_tga(
                                 reader.stream, f, current_chunk.size, width, height, grayscale=False)
                         image = bpy.data.images.load(f.name)
@@ -317,9 +323,9 @@ class WhmLoader:
                 node_tex.hide = True
                 node_tex.image = self.default_image
             node_tex.location = node_pos_x + 200, node_pos_y
-            node_tex.label = f'color_layer_{layer_name}'
+            node_tex.label = f'color_layer_{layer_name.value}'
             links.new(uf_offset_node.outputs[0], node_tex.inputs['Vector'])
-            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_{"value" if layer_name != "default" else "color"}'])
+            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name.value}_{"value" if layer_name != textures.TeamcolorLayers.DEFAULT else "color"}'])
 
         img_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
         img_size_node.inputs['X'].default_value = default_image_size[0]
@@ -390,7 +396,8 @@ class WhmLoader:
             links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_color'])
             links.new(node_tex.outputs[1], aply_teamcolor.inputs[f'{layer_name}_alpha'])
 
-        if 'default' in loaded_textures:
+        material.node_tree.nodes[0].inputs['Specular IOR Level'].default_value = 0
+        if textures.TeamcolorLayers.DEFAULT in loaded_textures:
             for node in material.node_tree.nodes:
                 if node.label == 'Apply spec':
                     links.new(aply_teamcolor.outputs[0], node.inputs['A'])
@@ -420,13 +427,13 @@ class WhmLoader:
         for c in sorted(self.TEAMCOLORABLE_LAYERS):
             panel = interface.new_panel(name=c, default_closed=True)
             interface.new_socket(
-                name=f'{c}_color',
+                name=f'{c.value}_color',
                 in_out='INPUT',
                 socket_type='NodeSocketColor',
                 parent=panel,
             )
             interface.new_socket(
-                name=f'{c}_value',
+                name=f'{c.value}_value',
                 in_out='INPUT',
                 socket_type='NodeSocketFloat',
                 parent=panel,
@@ -468,12 +475,12 @@ class WhmLoader:
             correct_color = group.nodes.new('ShaderNodeGamma')
             correct_color.inputs['Gamma'].default_value = 0.4545
             correct_color.location = node_pos_x - 200, node_pos_y - 70
-            links.new(group_inputs.outputs[f'{layer_name}_color'], correct_color.inputs['Color'])
+            links.new(group_inputs.outputs[f'{layer_name.value}_color'], correct_color.inputs['Color'])
 
             correct_mask = group.nodes.new('ShaderNodeGamma')
             correct_mask.inputs['Gamma'].default_value = 0.4545
             correct_mask.location = node_pos_x - 200, node_pos_y + 30
-            links.new(group_inputs.outputs[f'{layer_name}_value'], correct_mask.inputs['Color'])
+            links.new(group_inputs.outputs[f'{layer_name.value}_value'], correct_mask.inputs['Color'])
 
             layer_color_node = group.nodes.new('ShaderNodeMixRGB')
             layer_color_node.blend_type = 'OVERLAY'
@@ -1226,6 +1233,8 @@ class WhmLoader:
         for k, _ in self.armature_obj.items():
             if k.startswith(f'visibility{props.SEP}'):
                 self.armature_obj[k] = 1.
+        for mesh in self.created_meshes.values():
+            mesh.color[3] = 1.
         if self.loaded_resource_stats['errors'] == self.loaded_resource_stats['attempted'] > 1:
             self.messages.append(('INFO', f'It looks like no resources were loaded. Make sure the "Mod folder" in the Add-on properties is set correctly'))
 
@@ -1286,7 +1295,7 @@ class WhmLoader:
                     for c in self.TEAMCOLORABLE_LAYERS:
                         if teamcolor.get(c, None) is None:
                             continue
-                        node.inputs[f'{c}_color'].default_value[:3] = teamcolor[c].copy().from_srgb_to_scene_linear()  # TODO Investigate why the default color scheme doesn't apply without copy()
+                        node.inputs[f'{c.value}_color'].default_value[:3] = teamcolor[c].copy().from_srgb_to_scene_linear()  # TODO Investigate why the default color scheme doesn't apply without copy()
 
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):

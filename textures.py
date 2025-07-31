@@ -1,6 +1,69 @@
+import enum
 import io
 import struct
 
+import bpy
+from PIL import Image as PilImage
+
+
+@enum.unique
+class MaterialLayers(str, enum.Enum):
+    DIFFUSE = 'diffuse'
+    SPECULAR_MASK = 'specularity'
+    SPECULAR_REFLECTION = 'reflection'
+    SELF_ILLUMUNATION = 'self_illumination'
+    OPACITY = 'opacity'
+
+
+@enum.unique
+class TeamcolorLayers(str, enum.Enum):
+    PRIMARY = 'primary'
+    SECONDARY = 'secondary'
+    TRIM = 'trim'
+    WEAPONS = 'weapons'
+    EYES = 'eyes'
+    DIRT = 'dirt'
+    DEFAULT = 'default'
+    BADGE = 'badge'
+    BANNER = 'banner'
+
+
+def img2pil(bpy_image) -> PilImage:
+    texture_data = None
+    if bpy_image.packed_files:
+        texture_data = bpy_image.packed_file.data
+    else:
+        packed_image = bpy_image.copy()
+        packed_image.pack()
+        if packed_image.packed_file is None:
+            return None
+        texture_data = packed_image.packed_file.data
+        bpy.data.images.remove(packed_image)
+    texture_stream = io.BytesIO(texture_data)
+    texture_stream.seek(0)
+    return PilImage.open(texture_stream)
+
+
+def encode_dds(pil_image: PilImage, path: str):
+    import quicktex.dds
+    import quicktex.s3tc.bc1
+    import quicktex.s3tc.bc3
+
+    level = 10
+    color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
+    mode = color_mode.ThreeColor
+    bc1_encoder = quicktex.s3tc.bc1.BC1Encoder(level, mode)
+    bc3_encoder = quicktex.s3tc.bc3.BC3Encoder(level)
+    if 'A' not in pil_image.mode:
+        has_alpha = False
+    else:
+        alpha_hist = pil_image.getchannel('A').histogram()
+        has_alpha = any([a > 0 for a in alpha_hist[:-1]])
+        # TODO test for 1-bit alpha
+    if has_alpha:
+        quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(path)
+    else:
+        quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(path)
 
 # if (imageType == 5) return FileFormats.ImgType.DXT1DDS;
 # if (imageType == 6) return FileFormats.ImgType.DXT3DDS;
