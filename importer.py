@@ -422,6 +422,9 @@ class WhmLoader:
             for node in material.node_tree.nodes:
                 if node.label == 'Apply spec':
                     links.new(aply_teamcolor.outputs[0], node.inputs['A'])
+                    break
+                else:
+                    links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
             links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
         else:
             self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
