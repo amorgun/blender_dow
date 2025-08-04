@@ -140,7 +140,12 @@ def iter_path_candidates(part: str) -> typing.Generator[str, None, None]:
 
 def try_find_path(root: pathlib.Path, *parts: str) -> pathlib.Path:
     curr = root
-    for part in parts:
+    iter_parts = iter(parts)
+    if not curr.is_dir():
+        for p in iter_parts:
+            curr /= p
+        return curr
+    for part in iter_parts:
         for part_case in iter_path_candidates(part):
             if (candidate := curr / part_case).exists():
                 curr = candidate
@@ -152,9 +157,10 @@ def try_find_path(root: pathlib.Path, *parts: str) -> pathlib.Path:
                         curr = c
                         break
                 else:
-                    for p in parts:
-                        root /= p
-                    return root
+                    curr /= part
+                    for p in iter_parts:
+                        curr /= p
+                    return curr
     return curr
 
 

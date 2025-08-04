@@ -400,6 +400,12 @@ class ExportModel:
         default='flat',
     )
 
+    override_files: bpy.props.BoolProperty(
+        name='Override files',
+        description='Override existing files',
+        default=False,
+    )
+
     vertex_position_merge_threshold: bpy.props.FloatProperty(
         name='Vertex merging position threshold',
         description='Maximum distance between merged vertices. Use 0 to disable proximity merging',
@@ -425,20 +431,25 @@ class ExportModel:
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, f'export_{self.filename_ext[1:]}',
                   'filepath', 'object_name', 'meta', 'convert_textures', 'max_texture_size',
-                  'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout',
+                  'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout', 'override_files',
                   'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
                   )
         filepath = pathlib.Path(self.filepath)
-        data_folder = addon_prefs.mod_folder if self.data_location == 'mod_root' else filepath.with_suffix('')
+        data_folder = filepath.with_suffix('')
+        data_subfolder = None
+        if self.data_location == 'mod_root':
+            data_folder = addon_prefs.mod_folder
+            data_subfolder = 'data'
         paths = exporter.FileDispatcher(data_folder, layout={
             'flat': exporter.FileDispatcher.Layout.FLAT,
             'flat_folders': exporter.FileDispatcher.Layout.FLAT_FOLDERS,
             'full_path': exporter.FileDispatcher.Layout.FULL_PATH,
-        }[self.store_layout])
+        }[self.store_layout], subfolder=data_subfolder)
         object_name = self.object_name if self.object_name else filepath.stem
         with open(self.filepath, 'wb') as f:
             writer = exporter.ChunkWriter(f, exporter.CHUNK_VERSIONS[self.FORMAT])
             ex = exporter.Exporter(paths,
+                                   override_files=self.override_files,
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,

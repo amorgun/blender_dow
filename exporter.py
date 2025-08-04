@@ -4,7 +4,6 @@ import contextlib
 import dataclasses
 import datetime
 import enum
-import io
 import math
 import pathlib
 import shutil
@@ -15,7 +14,7 @@ import mathutils
 from bpy_extras import anim_utils
 from PIL import Image as PilImage
 
-from . import textures, utils, props
+from . import textures, utils, props, dow_layout
 from .chunky import ChunkWriter
 
 
@@ -32,18 +31,20 @@ class FileDispatcher:
         FLAT_FOLDERS = enum.auto()
         FULL_PATH = enum.auto()
 
-    def __init__(self, root: str, layout: Layout):
+    def __init__(self, root: str, layout: Layout, subfolder: str | None):
         self.root = pathlib.Path(root)
         self.layout = layout
         self.file_info = []
+        self.subfolder = subfolder
         
     def get_path(self, path: str, require_parent=False) -> pathlib.Path:
         path = pathlib.Path(path)
+        path_parts = [self.subfolder] if self.subfolder else []
         match self.layout:
-            case FileDispatcher.Layout.FLAT: rel_path = path.name
-            case FileDispatcher.Layout.FLAT_FOLDERS: rel_path = f'{path.parent.name}/{path.name}' if require_parent else path.name
-            case FileDispatcher.Layout.FULL_PATH: rel_path = path
-        return self.root / rel_path
+            case FileDispatcher.Layout.FLAT: path_parts.append(path.name)
+            case FileDispatcher.Layout.FLAT_FOLDERS: path_parts.extend([path.parent.name, path.name] if require_parent else [path.name])
+            case FileDispatcher.Layout.FULL_PATH: path_parts.extend(path.parts)
+        return dow_layout.try_find_path(self.root, *path_parts)
 
     def add_info(self, declared_path: str, real_path: pathlib.Path):
         self.file_info.append((real_path.relative_to(self.root), declared_path))
@@ -160,6 +161,7 @@ class Exporter:
     def __init__(
             self,
             paths: FileDispatcher,
+            override_files: bool = False,
             format: ExportFormat = ExportFormat.WHM,
             convert_textures: bool = True,
             default_texture_path: str = '',
@@ -175,6 +177,7 @@ class Exporter:
         ) -> None:
         self.messages = []
         self.paths = paths
+        self.override_files = override_files
         self.format = format
         self.convert_textures = convert_textures
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
@@ -193,6 +196,12 @@ class Exporter:
         self.exported_meshes = None
         self.exported_materials = None
         self.bone_to_idx = {}
+
+    def copy_file(self, src: pathlib.Path, dst: pathlib.Path):
+        if dst.is_file() and not self.override_files:
+            self.messages.append(('INFO', f'Skipping {dst} because it already exists'))
+            return
+        shutil.copy(src, dst)
 
     def export(self, writer: ChunkWriter, object_name: str, meta: str = ''):
         current_mode = bpy.context.mode
@@ -485,7 +494,7 @@ class Exporter:
                     if not export_success:
                         return False
             dst_path.parent.mkdir(exist_ok=True, parents=True)
-            shutil.copy(exported_file, dst_path)
+            self.copy_file(exported_file, dst_path)
         return True
 
     def write_rsh_chunks(self, writer: ChunkWriter, images: dict, declared_path: pathlib.PurePosixPath, mat_name: str) -> bool:
@@ -653,7 +662,7 @@ class Exporter:
                         with writer.start_chunk(chunk_name):
                             writer.write_struct('<4f', *data.get('position', [0, 0]), *data.get('display_size', default_size))
             dst_path.parent.mkdir(exist_ok=True, parents=True)
-            shutil.copy(exported_file, dst_path)
+            self.copy_file(exported_file, dst_path)
         return True
 
     def export_teamcolored_rtx(self, teamcolor_images: dict, teamcolor_colors: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, mat_name: str) -> bool:
@@ -739,7 +748,7 @@ class Exporter:
                             with texture_stream:
                                 shutil.copyfileobj(texture_stream, writer)
             dst_path.parent.mkdir(exist_ok=True, parents=True)
-            shutil.copy(exported_file, dst_path)
+            self.copy_file(exported_file, dst_path)
         return True
 
     @classmethod
