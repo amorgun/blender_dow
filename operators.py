@@ -268,7 +268,7 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
                 obj_copy.name = vertex_group.name
                 if obj.animation_data is not None:
                     obj_copy.animation_data_clear()
-                    obj_copy.animation_datpoly_groupsa_create()
+                    obj_copy.animation_data_create()
                     orig_action = obj.animation_data.action
                     for action in bpy.data.actions:
                         obj.animation_data.action = action
@@ -776,9 +776,11 @@ class DowTools(bpy.types.Panel):
                 layout.row().prop(context.active_object, 'name')
 
                 if utils.can_be_force_skinned(context.active_object):
+                    layout.row().label(text='Force Skinning: Yes')
                     make_prop_row(layout, context.active_object, 'xref_source')
                     layout.row().prop(context.active_object, 'dow_shadow_mesh')
                 else:
+                    layout.row().label(text='Force Skinning: No')
                     layout.row().label(text='Cannot be xreffed', icon='ERROR')
                     layout.row().label(text='Cannot have a shadow', icon='ERROR')
                 layout.separator()

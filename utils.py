@@ -100,10 +100,9 @@ def get_single_bone_name(obj, vertex_groups, vertex_group_whitelist) -> str:
 
 
 def can_be_force_skinned(obj):
-    for m in obj.modifiers:
-        if m.type == 'ARMATURE' and m.object is not None:
-            bone_names = {b.name for b in m.object.data.bones}
-            break
+    armature = get_armature(obj)
+    if armature is not None:
+        bone_names = {b.name for b in armature.data.bones}
     else:
         bone_names = set()
     vertex_groups = get_weighted_vertex_groups(obj)
@@ -116,6 +115,7 @@ def iter_animatable():
         yield i
         if (node_tree := getattr(i, 'node_tree', None)) is not None:
             yield node_tree
+
 
 def get_armature(mesh_obj):
     if mesh_obj.parent is not None and mesh_obj.parent.type == 'ARMATURE':
