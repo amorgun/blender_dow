@@ -122,6 +122,7 @@ class WhmLoader:
         if not texture_data:
             self.messages.append(('WARNING', f'Cannot find texture file "{full_texture_path}"'))
             self.loaded_resource_stats['errors'] += 1
+            return
         return self.load_rtx(open_reader(texture_data))
 
     def load_rtx(self, reader: ChunkReader):
@@ -938,7 +939,7 @@ class WhmLoader:
         current_chunk = reader.read_header('DATADATA')
         rsv0_a, flag, num_polygons, rsv0_b = reader.read_struct('<l b l l') # -- skip 13 bytes (unknown)
         self.ensure(flag == 1, f'Mesh "{mesh_name}": {flag=}', level='INFO')
-        self.ensure(rsv0_a == 0 and rsv0_b == 0, f'Mesh "{mesh_name}": {rsv0_a=} {rsv0_b=}', level='INFO')
+        self.ensure(rsv0_a == 0 and rsv0_b == 0, f'Mesh "{mesh_name}": {rsv0_a=} {rsv0_b=}', level='DEBUG')
         num_skin_bones = reader.read_one('<l')  # -- get number of bones mesh is weighted to
 
         #---< SKIN BONES >---
@@ -1043,7 +1044,7 @@ class WhmLoader:
             self.ensure(data_min_vertex_idx == real_min_vertex_idx, f'Mesh "{mesh_name}:{texture_path}" min_vertex_idx: {data_min_vertex_idx} != {real_min_vertex_idx}')
             self.ensure(data_vertex_cnt == real_vertex_cnt, f'Mesh "{mesh_name}:{texture_path}" vertex_cnt: {data_vertex_cnt} != {real_vertex_cnt}')
 
-        self.ensure(num_polygons == len(face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(face_array)}')
+        self.ensure(num_polygons == len(face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(face_array)}', level='DEBUG')  # Too common to report
 
         #---< SHADOW VOLUME >---
 
@@ -1265,7 +1266,7 @@ class WhmLoader:
         for mesh in self.created_meshes.values():
             mesh.color[3] = 1.
         if self.loaded_resource_stats['errors'] == self.loaded_resource_stats['attempted'] > 1:
-            self.messages.append(('INFO', f'It looks like no resources were loaded. Make sure the "Mod folder" in the Add-on properties is set correctly'))
+            self.messages.append(('WARNING', f'It looks like no resources were loaded. Make sure the "Mod folder" in the Add-on properties is set correctly'))
 
     def load_teamcolor(self, path: pathlib.Path | str) -> dict:
         from .slpp import slpp as lua
