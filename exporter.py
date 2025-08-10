@@ -754,12 +754,12 @@ class Exporter:
     @classmethod
     def is_marker(cls, bone, armature):
         has_collections = False
-        for k in ['Markers', 'markers']:
-            if k in armature.collections:
-                has_collections = True
-                markers = armature.collections[k].bones
-                if bone.name in markers:
-                    return True
+        for collection in armature.collections:
+            if collection.name.lower() != 'markers':
+                continue
+            has_collections = True
+            if bone.name in collection.bones:
+                return True
         if has_collections:
             return False
         return bone.name.startswith('marker_')
