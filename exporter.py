@@ -272,13 +272,7 @@ class Exporter:
         exported_nodes = {node.label: node
                         for node in mat.node_tree.nodes
                         if node.bl_idname == 'ShaderNodeTexImage'
-                        and node.label in (
-                            textures.MaterialLayers.DIFFUSE,
-                            textures.MaterialLayers.SPECULAR_MASK,
-                            textures.MaterialLayers.SPECULAR_REFLECTION,
-                            textures.MaterialLayers.SELF_ILLUMUNATION,
-                            textures.MaterialLayers.OPACITY,
-                        )}
+                        and node.label in textures.MaterialLayers.__members__}
         for slot, input_idname in [
             (textures.MaterialLayers.DIFFUSE, 'Base Color'),
             (textures.MaterialLayers.SPECULAR_MASK, 'Specular IOR Level'),

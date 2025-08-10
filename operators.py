@@ -3,7 +3,7 @@ from bpy_extras import anim_utils
 import bmesh
 import mathutils
 
-from . import props, utils
+from . import props, utils, textures
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -850,7 +850,9 @@ class DowMaterialTools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        mat = context.active_object.active_material
+        mat = context.material
+        if context.active_node is not None and hasattr(context.active_node, 'dow_image_label'):
+            layout.row().prop(context.active_node, 'dow_image_label', text='Layer')
         remote_prop_owner = props.get_material_prop_owner(mat)
         if remote_prop_owner is None:
             node = None
@@ -883,6 +885,39 @@ class DowMaterialTools(bpy.types.Panel):
             'internal',
         ]:
             make_prop_row(layout, mat, prop)
+
+
+IMAGE_LAYERS = [
+    ('NONE', 'None', ''),
+    *[(k, k.replace('_', ' ').capitalize(), k) for k in textures.MaterialLayers],
+    *[(k, f'Teamcolor {k.capitalize()}', f'color_layer_{k.value}') for k in [
+        textures.TeamcolorLayers.DEFAULT,
+        textures.TeamcolorLayers.DIRT,
+        textures.TeamcolorLayers.PRIMARY,
+        textures.TeamcolorLayers.SECONDARY,
+        textures.TeamcolorLayers.TRIM,
+        textures.TeamcolorLayers.WEAPONS,
+        textures.TeamcolorLayers.EYES
+    ]],
+    *[(k, k.capitalize(), k) for k in [
+        textures.TeamcolorLayers.BADGE,
+        textures.TeamcolorLayers.BANNER,
+    ]],
+]
+
+
+def get_image_label(self):
+    layers = {i[2]: idx for idx, i in enumerate(IMAGE_LAYERS)}
+    return layers.get(self.label.lower(), 0)
+
+
+def set_image_label(self, val):
+    label = IMAGE_LAYERS[val][2]
+    if val != 0:
+        for node in bpy.context.material.node_tree.nodes:
+            if hasattr(node, 'dow_image_label') and node.label.lower() == label.lower():
+                node.label = ''
+    self.label = label
 
 
 @bpy.app.handlers.persistent
@@ -1054,6 +1089,12 @@ def register():
         get=get_autoswitch_actions,
         set=set_autoswitch_actions,
     )
+    bpy.types.ShaderNodeTexImage.dow_image_label = bpy.props.EnumProperty(
+        items=[(i[0], i[1], '') for i in IMAGE_LAYERS],
+        default='NONE',
+        get=get_image_label,
+        set=set_image_label,
+    )
     bpy.app.handlers.depsgraph_update_post.append(rename_listener)
     bpy.app.handlers.depsgraph_update_post.append(action_change_listener)
     bpy.app.handlers.load_post.append(init_dow_props)
@@ -1068,6 +1109,7 @@ def unregister():
         h for h in bpy.app.handlers.depsgraph_update_post
         if h not in (rename_listener, action_change_listener)
     ]
+    del bpy.types.ShaderNodeTexImage.dow_image_label
     del bpy.types.Scene.dow_autoswitch_actions
     del bpy.types.Scene.dow_update_animations
     del bpy.types.PoseBone.dow_stale
