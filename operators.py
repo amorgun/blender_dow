@@ -167,7 +167,7 @@ class DOW_OT_create_shadow(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return any(
+        return context.mode == 'OBJECT' and any(
             o.type == 'MESH' and utils.can_be_force_skinned(o)
             for o in context.selected_objects
         )
@@ -217,7 +217,7 @@ class DOW_OT_autosplit_mesh(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return any(
+        return context.mode == 'OBJECT' and any(
             o.type == 'MESH' and not utils.can_be_force_skinned(o)
             for o in context.selected_objects
         )
@@ -336,13 +336,14 @@ class DOW_OT_convert_to_marker(bpy.types.Operator):
     """Convert the bone to marker"""
 
     bl_idname = 'object.dow_convert_to_marker'
-    bl_label = 'Convert to marker'
+    bl_label = 'Convert bone to marker'
     bl_options = {'REGISTER'}
 
     @classmethod
     def poll(cls, context):
         return (
-            context.selected_editable_bones
+            context.mode in ('POSE', 'EDIT_ARMATURE')
+            and context.selected_editable_bones
             or context.selected_pose_bones_from_active_object
         )
 
@@ -391,19 +392,19 @@ class DOW_OT_select_all_actions(bpy.types.Operator):
 
     def execute(self, context):
         for i in context.popup_operator.actions:
-            i.force_invisible = self.status
+            i.selected = self.status
         return {'FINISHED'}
 
 
 class DOW_UL_action_settings(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row()
-        row.prop(item, 'force_invisible', text=item.name)
+        row.prop(item, 'selected', text=item.name)
 
 
 class ActionSettings(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
-    force_invisible: bpy.props.BoolProperty()
+    selected: bpy.props.BoolProperty()
 
 
 class DOW_OT_batch_configure_invisible(bpy.types.Operator):
@@ -435,7 +436,7 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
                 if d.name not in bpy.data.actions:
                     continue
                 action = bpy.data.actions.get(d.name)
-                _set_force_invisible_inner(obj, d.force_invisible, action)
+                _set_force_invisible_inner(obj, d.selected, action)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -458,7 +459,7 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
                 anim_data.action = action
                 value = bool(get_fcurve_flag(anim_data, fcurve_data_paths, default=False))
                 anim_data.action = orig_action
-            it.force_invisible = value
+            it.selected = value
         return wm.invoke_props_dialog(self, width=500)
 
     def draw(self, context):
@@ -469,6 +470,92 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
         row.context_pointer_set(name='popup_operator', data=self)
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Deselect All').status=False
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
+
+
+class DOW_OT_batch_bake_actions(bpy.types.Operator):
+    """Bake multiple animations"""
+
+    bl_idname = 'object.dow_batch_bake_actions'
+    bl_label = 'Batch bake actions'
+    bl_options = {'REGISTER'}
+
+    actions: bpy.props.CollectionProperty(type=ActionSettings)
+    step: bpy.props.IntProperty(default=2)
+    clear_constraints: bpy.props.BoolProperty(default=True)
+    selected_index: bpy.props.IntProperty()
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.active_object is not None
+            and context.active_object.type == 'ARMATURE'
+        )
+
+    def execute(self, context):
+        actions_to_bake = [bpy.data.actions.get(d.name) for d in self.actions if d.name in bpy.data.actions and d.selected]
+        anim_data = context.active_object.animation_data
+        orig_action = anim_data.action
+        for action_idx, action in enumerate(actions_to_bake):
+            anim_data.action = action
+            last_frame = int(action.frame_end)
+            frames = list(range(int(action.frame_start), last_frame + 1, self.step))
+            if frames[-1] != last_frame:
+                frames.append(last_frame)
+            baked = anim_utils.bake_action(
+                bpy.context.active_object,
+                action=None,
+                frames=frames,
+                bake_options=anim_utils.BakeOptions(
+                    only_selected=False,
+                    do_pose=True,
+                    do_object=False,
+                    do_visual_keying=True,
+                    do_constraint_clear=self.clear_constraints and action_idx == len(actions_to_bake) - 1,
+                    do_parents_clear=False,
+                    do_clean=True,
+                    do_location=True,
+                    do_rotation=True,
+                    do_scale=True,
+                    do_bbone=False,
+                    do_custom_props=False),
+            )
+            orig_channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
+            baked_channelbag = anim_utils.action_get_channelbag_for_slot(baked, anim_data.action_slot)
+            if orig_channelbag.fcurves is None and baked_channelbag.fcurves is not None:
+                orig_channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
+            for baked_fcurve in baked_channelbag.fcurves or []:
+                orig_fcurve = orig_channelbag.fcurves.find(baked_fcurve.data_path, index=baked_fcurve.array_index)
+                if orig_fcurve is not None:
+                    orig_fcurve.keyframe_points.clear()
+                else:
+                    orig_fcurve = orig_channelbag.fcurves.new(baked_fcurve.data_path, index=baked_fcurve.array_index)
+                for k in baked_fcurve.keyframe_points:
+                    orig_fcurve.keyframe_points.insert(*k.co)
+            bpy.data.actions.remove(baked, do_unlink=True)
+        anim_data.action = orig_action
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        self.actions.clear()
+        anim_data = context.active_object.animation_data
+        for action in bpy.data.actions:
+            it = self.actions.add()
+            it.name = action.name
+            it.selected = anim_data is not None and anim_data.action == action
+        return wm.invoke_props_dialog(self, width=500)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.row().prop(self, 'step', text='Step')
+        layout.row().prop(self, 'clear_constraints', text='Clear Constraints')
+        layout.row().label(text='Actions')
+        layout.template_list('DOW_UL_action_settings', '', self, 'actions', self, 'selected_index')
+        row = layout.row()
+        row.context_pointer_set(name='popup_operator', data=self)
+        row.operator(DOW_OT_select_all_actions.bl_idname, text='Deselect All').status=False
+        row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
+
 
 
 def get_animation_data(obj):
@@ -680,11 +767,10 @@ class DowTools(bpy.types.Panel):
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
         layout.row().prop(context.scene, 'dow_autoswitch_actions_view')
-        if context.mode == 'OBJECT':
-            layout.row().operator(DOW_OT_create_shadow.bl_idname)
-            layout.row().operator(DOW_OT_autosplit_mesh.bl_idname)
-        if context.mode in ('POSE', 'EDIT_ARMATURE'):
-            layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
+        layout.row().operator(DOW_OT_autosplit_mesh.bl_idname)
+        layout.row().operator(DOW_OT_create_shadow.bl_idname)
+        layout.row().operator(DOW_OT_batch_bake_actions.bl_idname)
+        layout.row().operator(DOW_OT_convert_to_marker.bl_idname)
 
 
 class DowMaterialTools(bpy.types.Panel):
@@ -863,6 +949,7 @@ def register():
     bpy.utils.register_class(DOW_UL_action_settings)
     bpy.utils.register_class(ActionSettings)
     bpy.utils.register_class(DOW_OT_batch_configure_invisible)
+    bpy.utils.register_class(DOW_OT_batch_bake_actions)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -938,6 +1025,7 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         del t.dow_name
+    bpy.utils.unregister_class(DOW_OT_batch_bake_actions)
     bpy.utils.unregister_class(DOW_OT_batch_configure_invisible)
     bpy.utils.unregister_class(ActionSettings)
     bpy.utils.unregister_class(DOW_UL_action_settings)
