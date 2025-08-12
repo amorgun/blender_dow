@@ -49,7 +49,7 @@ The addon uses two values to determine the exported path:
 
 ## Manually copying exported textures to my mod is tedious. Is there a simpler way?
 Yes, you can select `Texture store layout = Full path` in the export dialogue. It will create the same nested folder structure as it expects from the mod folder. Then you can copy it to your mod folder with the `Merge` option selected to automatically put everything into the correct places.  You can also copy it into your `DataGeneric` folder to make it work with the Object Editor.  
-You can go further and select `Data store location = Mod root` to automatically put all exported files into your mod. But be careful because it can override existing files there.
+You can go further and select `Data store location = Mod root` to automatically put all exported files into your mod. But be careful because it can override existing files there.  
 ![store_layout](../images/faq/store_layout.png)
 
 ## How do I edit textures using this addon?
