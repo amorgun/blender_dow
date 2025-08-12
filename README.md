@@ -7,7 +7,7 @@ Blender addon for import and export of Dawn of War models.
 ## Key features
 - **Import and Export Functionality**: Supports the Dawn of War model format(`.whm`), including meshes, textures, bones, markers and animations.
 * **Object Editor support**: Allows export to Object Editor model format(`.sgm`) so you can configure the unit properties, e.g. motions and actions.
-- **Built-in conversion of textures**: Automatically imports `.rsh` texture files, including all additional layers, and exports all of it back.
+- **Built-in conversion of textures**: Automatically imports `.rsh` texture files, including all additional layers, and exports all of them back.
 
 ## Installation
 1. Make sure your Blender version is 4.4 or newer.
@@ -19,31 +19,23 @@ Blender addon for import and export of Dawn of War models.
 1. Open your mod with [Corsix's Mod Studio](https://modstudio.corsix.org/)
 2. Find and unpack the model `.whm` file (usually located at `Data/art/ebps/races/<race>/troops`)
 3. Unpack `.rsh` files with model textures  (usually located at `Data/art/ebps/races/<race>/texture_share`)  
-  If you missed some textures you can unpack them later following error messages from the addon.
+  If you missed some textures you can unpack them later following the error messages from the addon.
 4. Tick the checkbox to enable the newly installed addon.
 5. In Blender go to `File -> Import -> Dawn of War model (.whm)` and select your `.whm` file.
 
 ## Export
 Often a simple `File -> Export -> Dawn of War model (.whm)` is enough.  
-There is a [detailed page](docs/export.md) with a full process of exporting and adding a new model into DoW.
+[This tutorial](docs/export.md) describes the full process of exporting and adding a new model into DoW.
 
-
-## Common problems
-### Mesh is not visible
-Either the mesh has too many vertices or you messed up with `force_invisible` in animations.
-### Model is pink
-DoW cannot load the texture. Usually it means you forgot to copy a `.rsh` file to the mod folder.  
-Check `warnings.log` inside DoW folder to find the offending file.
-Sometimes it's caused by the texture being too big.
-### Model is black
-It means DoW doesn't like the texture size. Make sure texture dimensions are both even.  
-Also try changing the `Max texture size` option during the Export dialog.
+## Links
+### [First steps](./docs/first_steps.md) - how to install the addon and import a model from DoW into Blender
+### [Exporting a model](./docs/export.md) - step-by-step tutorial on how to optimize a model and put it into DoW
+### [FAQ](./docs/faq.md) - Frequently Asked Questions
 
 ## Troubleshooting
-Make sure you are using Blender 4.4 or newer.  
+Ensure you are using Blender 4.4 or newer.  
 The addon reports some messages that you can find in [Info Editor](https://docs.blender.org/manual/en/latest/editors/info_editor.html).  
 In case it doesn't help feel free to [file an issue](https://github.com/amorgun/blender_dow/issues).
-
 
 ## Acknowledgments
 - [Santos Tools](https://web.archive.org/web/20140916035249/http://forums.relicnews.com/showthread.php?76791-Santos-Tools) - original import script for 3ds Max.
