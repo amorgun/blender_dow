@@ -99,6 +99,7 @@ First of all, you need to set an action for your animated material.
 2. Go to the Material tab
 3. Find Animation section
 4. Select an action for the `Shader Node Tree` slot (not for the `Material`)
+
 ![setup_slot](../images/faq/setup_slot.gif)
 
 Then you can animate the `UV-offset` property on the addon tools panel in the Shader Node window.  
