@@ -1,9 +1,33 @@
 # Frequently Asked Questions
+### Table of Contents
+1. [Why does my imported model not have textures in Blender?](#why-does-my-imported-model-not-have-textures-in-blender)
+1. [Where can I get the latest version of the addon?](#where-can-i-get-the-latest-version-of-the-addon)
+1. [Can you model/texture/animate a unit for me?](#can-you-modeltextureanimate-a-unit-for-me)
+1. [Where can I find the addon tools?](#where-can-i-find-the-addon-tools)
+1. [I've edited a `.whm` file. How can I update the `.whe` for it?](#ive-edited-a-whm-file-how-can-i-update-the-whe-for-it)
+1. [Why is my model pink in-game?](#why-is-my-model-pink-in-game)
+1. [Why are some parts of my model invisible in-game?](#why-are-some-parts-of-my-model-invisible-in-game)
+1. [Why do my exported textures use `space_marine` path? How can I change it?](#why-do-my-exported-textures-use-space_marine-path-how-can-i-change-it)
+1. [Manually copying exported textures to my mod is tedious. Is there a simpler way?](#manually-copying-exported-textures-to-my-mod-is-tedious-is-there-a-simpler-way)
+1. [How do I edit textures using this addon?](#how-do-i-edit-textures-using-this-addon)
+1. [Why does my exported model have more vertices than the original?](#why-does-my-exported-model-have-more-vertices-than-the-original)
+1. [How can I make my model fit the Army Painter window?](#how-can-i-make-my-model-fit-the-army-painter-window)
+1. [How do I create `vis_` animations?](#how-do-i-create-vis_-animations)
+1. [How do I create `aim` animations?](#how-do-i-create-aim-animations)
+1. [Can I use IK or cloth simulation for my models?](#can-i-use-ik-or-cloth-simulation-for-my-models)
+1. [How to set up IK so it's easier to export it later?](#how-to-set-up-ik-so-its-easier-to-export-it-later)
+1. [How can I make animated textures (e.g., tank tracks/chainswords)?](#how-can-i-make-animated-textures-eg-tank-trackschainswords)
+1. [What is `Force Skinning`](#what-is-force-skinning)
+1. [How can I copy an action from one model to another?](#how-can-i-copy-an-action-from-one-model-to-another)
+1. [Where can I see some example models?](#where-can-i-see-some-example-models)
+1. [How can I learn more about DoW modding?](#how-can-i-learn-more-about-dow-modding)
+1. [How can I help this project?](#how-can-i-help-this-project)
+1. [My question is not listed here. Where can I ask it?](#my-question-is-not-listed-here-where-can-i-ask-it)
 
 ## Why does my imported model not have textures in Blender?
 It means the addon cannot find your texture files.  
-Almost always it's caused by **Mod folder** not being [set up correctly](./first_steps.md#configuration).  
-Go to `Edit -> Preferences -> Add-ons -> Dawn of War Import/Export`, click on  **"Setup using .module"** button and select your mod's .module file.  
+Almost always it's caused by the **Mod folder** not being [set up correctly](./first_steps.md#configuration).  
+Go to `Edit -> Preferences -> Add-ons -> Dawn of War Import/Export`, click on the **"Setup using .module"** button and select your mod's .module file.  
 ![preferences2](../images/first_steps/preferences2.png)
 
 ## Where can I get the latest version of the addon?
@@ -66,7 +90,7 @@ Here are two different UV unwrapping methods with duplicated vertices marked:
 ![split_vertices_2](../images/faq/split_vertices_2.png)
 
 ## How can I make my model fit the Army Painter window?
-DoW looks for `army_painter_camera` camera. The camera position defines the distance to the model, and camera focus is used as the rotation center.  
+DoW looks for `army_painter_camera` camera. The camera position defines the distance to the model, and the camera focus is used as the rotation center.  
 You can copy the camera setup from `art/ebps/races/space_marines/troops/space_marine.whm` or configure it yourself.
 ![army_painter_camera](../images/faq/army_painter_camera.png)
 
@@ -85,12 +109,12 @@ Also, check [this tutorial](https://web.archive.org/web/20071016120841/http://ag
 ![skeleton](../images/faq/skeleton.png)
 
 ## Can I use IK or cloth simulation for my models?
-Yes, but you'll neet to bake it to bone animation before exporting. The addon provides the batch-baking operator to streamline this process.  
+Yes, but you'll need to bake it to bone animation before exporting. The addon provides the batch-baking operator to streamline this process.  
 ![batch_bake](../images/faq/batch_bake.png)
 
 ## How to set up IK so it's easier to export it later?
 ![ik_setup](../images/faq/ik_setup.png)
-I recommend adding additional IK bones that are used as IK constraint targets without their own Weight Paining.  
+I recommend adding additional IK bones that are used as IK constraint targets without their own Weight Painting.  
 This way you can keep the original parent relations and remove this IK bone after baking your animations.
 
 ## How can I make animated textures (e.g., tank tracks/chainswords)?
@@ -110,7 +134,7 @@ Keyframe it the same way you keyframe any other property.
 ## What is `Force Skinning`?
 The mesh is Force Skinned when it's fully attached to a single bone. It can use either Weight Painting or parenting to the bone.  
 This provides a couple of advantages:
-1. Force Skinned meshes are extremely cheap for the DoW engine so you can get huge meshes to work in-game
+1. Force-Skinned meshes are extremely cheap for the DoW engine so you can get huge meshes to work in-game
 2. Your model can reuse Force Skinned meshes from other models using the `xref_source` attribute.
 3. It helps reduce the size of the exported file
 `Force Skinning` is detected automatically and you can see it on the addon tools panel:  
@@ -135,9 +159,9 @@ Take a look at [**my collection of tutorial links**](https://github.com/amorgun/
 ## How can I help this project?
 Here are a few ideas:
 - Make some cool stuff for your mod and inspire more people to get into DoW modding
-- Make a tutorial or a video showcasing your pipeline of working with the add-on
+- Make a tutorial or a video showcasing your pipeline for working with the add-on
 - Suggest new features and report bugs
-- Leave a ⭐star⭐ for this repository to keep me motivated
+- Leave a ⭐star⭐ for this repository to keep me motivated to keep working on it
 
 ## My question is not listed here. Where can I ask it?
 The best way to do it is to [open a new issue](https://github.com/amorgun/blender_dow/issues/new) in this repository.  
