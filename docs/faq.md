@@ -93,6 +93,19 @@ Yes, but you'll neet to bake it to bone animation before exporting. The addon pr
 I recommend adding additional IK bones that are used as IK constraint targets without their own Weight Paining.  
 This way you can keep the original parent relations and remove this IK bone after baking your animations.
 
+## How can I make animated textures (e.g., tank tracks/chainswords)?
+First of all, you need to set an action for your animated material.
+1. Select a mesh with this material
+2. Go to the Material tab
+3. Find Animation section
+4. Select an action for the `Shader Node Tree` slot (not for the `Material`)
+![setup_slot](../images/faq/setup_slot.gif)
+
+Then you can animate the `UV-offset` property on the addon tools panel in the Shader Node window.  
+Keyframe it the same way you keyframe any other property.  
+
+![animate_material](../images/faq/animate_material.gif)
+
 ## What is `Force Skinning`?
 The mesh is Force Skinned when it's fully attached to a single bone. It can use either Weight Painting or parenting to the bone.  
 This provides a couple of advantages:
