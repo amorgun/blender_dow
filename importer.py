@@ -94,13 +94,6 @@ class WhmLoader:
                 self.loaded_resource_stats['errors'] += 1
                 return
             material = self.load_rsh(open_reader(material_data), material_path)  # -- create new material
-            if self.wtp_load_enabled:
-                teamcolor_path = f'{material_path}_default.wtp'
-                teamcolor_data = self.layout.find(teamcolor_path)
-                if not teamcolor_data:
-                    self.messages.append(('INFO', f'Cannot find {teamcolor_path}'))
-                else:
-                    self.load_wtp(open_reader(teamcolor_data), material_path, material)
             self.loaded_material_paths.add(material_path)
 
     def load_rsh(self, reader: ChunkReader, material_path: str):
@@ -269,6 +262,17 @@ class WhmLoader:
                     links.new(node_tex.outputs[0], i)
 
         self.created_materials[material_path] = mat
+        if self.wtp_load_enabled:
+            for channel in channels:
+                if channel['idx'] != 0:
+                    continue
+                teamcolor_path = f'{channel["texture_name"]}_default.wtp'
+                teamcolor_data = self.layout.find(teamcolor_path)
+                if not teamcolor_data:
+                    self.messages.append(('DEBUG', f'Cannot find {teamcolor_path}'))
+                else:
+                    self.load_wtp(open_reader(teamcolor_data), material_path, mat)
+                break
         return mat
 
     def load_wtp(self, reader: ChunkReader, material_path: str, material):
