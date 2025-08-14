@@ -25,7 +25,7 @@ Some mods provide an installer to do it for you.
 
 Anyway after installing the mod your game folder contains the new `.module` file and the mod folder.
 
-Click on the **"Setup using .module"** button and select your .module file.  
+Click on the **"Setup using .module"** button and select your mods `.module` file.  
 ![preferences2](../images/first_steps/preferences2.png)  
 
 ![folder_with_mod_image](../images/first_steps/folder_with_mod_image.png)  
