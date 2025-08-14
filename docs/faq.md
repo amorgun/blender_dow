@@ -1,6 +1,7 @@
 # Frequently Asked Questions
 ### Table of Contents
 1. [Why does my imported model not have textures in Blender?](#why-does-my-imported-model-not-have-textures-in-blender)
+1. [Does the addon work with the Definitive Edition?](#does-the-addon-work-with-the-definitive-edition)
 1. [Where can I get the latest version of the addon?](#where-can-i-get-the-latest-version-of-the-addon)
 1. [Can you model/texture/animate a unit for me?](#can-you-modeltextureanimate-a-unit-for-me)
 1. [Where can I find the addon tools?](#where-can-i-find-the-addon-tools)
@@ -29,6 +30,9 @@ It means the addon cannot find your texture files.
 Almost always it's caused by the **Mod folder** not being [set up correctly](./first_steps.md#configuration).  
 Go to `Edit -> Preferences -> Add-ons -> Dawn of War Import/Export`, click on the **"Setup using .module"** button and select your mod's .module file.  
 ![preferences2](../images/first_steps/preferences2.png)
+
+## Does the addon work with the Definitive Edition?
+Yes. The addon supports the new `.whm`+`.rtx` scheme and exports the old `.whm` + `.rsh` scheme, which still works in DE.
 
 ## Where can I get the latest version of the addon?
 Visit the [**Releases page**](https://github.com/amorgun/blender_dow/releases/) for the latest stable and dev versions.
