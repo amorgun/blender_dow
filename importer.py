@@ -958,7 +958,8 @@ class WhmLoader:
 
         num_vertices = reader.read_one('<l')  # -- read number of vertices
         vertex_size_id = reader.read_one('<l')  # 37 or 39
-        self.ensure((num_skin_bones != 0) * 2 == vertex_size_id - 37, f'Mesh "{mesh_name}": {num_skin_bones=} and {vertex_size_id=}')
+        self.ensure(vertex_size_id == 5 or ((num_skin_bones != 0) * 2 == vertex_size_id - 37),
+                    f'Mesh "{mesh_name}": {num_skin_bones=} and {vertex_size_id=}')
 
         vert_array = []       # -- array to store vertex data
         for _ in range(num_vertices):
@@ -1019,7 +1020,7 @@ class WhmLoader:
         num_materials = reader.read_one('<l')  # -- read number of materials
         materials = []
         matid_array = []      # -- array to store material id's
-        
+
         #-- read materials
         for _ in range(num_materials):
             texture_path = reader.read_str()  # -- read texture path
@@ -1052,25 +1053,29 @@ class WhmLoader:
 
         #---< SHADOW VOLUME >---
 
-        num_shadow_vertices = reader.read_one('<L')  # -- zero is ok
-        shadow_vertices = []
-        for _ in range(num_shadow_vertices):
-            x, z, y = reader.read_struct('<3f')
-            shadow_vertices.append((-x, -y, z))
-
-        num_shadow_faces = reader.read_one('<L')  # -- zero is ok
         shadow_faces = []
-        shadow_face_normals = []
-        for _ in range(num_shadow_faces):
-            norm_x, norm_z, norm_y, x, z, y = reader.read_struct('<3f3L')
-            shadow_faces.append((x, y, z))
-            shadow_face_normals.append((-norm_x, -norm_y, norm_z))
+        num_shadow_vertices = reader.read_one('<L')  # -- zero is ok
+        if vertex_size_id == 5:  # DE shadow shenanigans
+            self.ensure(num_shadow_vertices == 0, f'Mesh "{mesh_name}: expect 0 shadow vertices, got {num_shadow_vertices}', level='INFO')
+        else:
+            shadow_vertices = []
+            for _ in range(num_shadow_vertices):
+                x, z, y = reader.read_struct('<3f')
+                shadow_vertices.append((-x, -y, z))
 
-        num_shadow_edges = reader.read_one('<L')  # -- zero is ok
-        shadow_edges = []
-        for _ in range(num_shadow_edges):
-            # vert1, vert2, face1, face2, vert_pos1, vert_pos2
-            shadow_edges.append(reader.read_struct('<4L6f'))
+            num_shadow_faces = reader.read_one('<L')  # -- zero is ok
+            shadow_faces = []
+            shadow_face_normals = []
+            for _ in range(num_shadow_faces):
+                norm_x, norm_z, norm_y, x, z, y = reader.read_struct('<3f3L')
+                shadow_faces.append((x, y, z))
+                shadow_face_normals.append((-norm_x, -norm_y, norm_z))
+
+            num_shadow_edges = reader.read_one('<L')  # -- zero is ok
+            shadow_edges = []
+            for _ in range(num_shadow_edges):
+                # vert1, vert2, face1, face2, vert_pos1, vert_pos2
+                shadow_edges.append(reader.read_struct('<4L6f'))
 
         #---< DATABVOL CHUNK >---
 
