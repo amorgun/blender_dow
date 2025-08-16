@@ -20,10 +20,7 @@ Blender addon for import and export of Dawn of War models.
 ## Import
 1. Open your mod with [Corsix's Mod Studio](https://modstudio.corsix.org/)
 2. Find and unpack the model `.whm` file (usually located at `Data/art/ebps/races/<race>/troops`)
-3. Unpack `.rsh` files with model textures  (usually located at `Data/art/ebps/races/<race>/texture_share`)  
-  If you missed some textures you can unpack them later following the error messages from the addon.
-4. Tick the checkbox to enable the newly installed addon.
-5. In Blender go to `File -> Import -> Dawn of War model (.whm)` and select your `.whm` file.
+3. In Blender go to `File -> Import -> Dawn of War model (.whm)` and select your `.whm` file.
 
 ## Export
 Often a simple `File -> Export -> Dawn of War model (.whm)` is enough.  
