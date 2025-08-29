@@ -568,7 +568,7 @@ class WhmLoader:
         group.links.new(prev_color_output, group_outputs.inputs['result'])
         return group
 
-    def CH_DATASKEL(self, reader: ChunkReader, xref: bool):  # Chunk Handler - Skeleton Data
+    def CH_DATASKEL(self, reader: ChunkReader, xref: bool = False):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
 
         num_bones = reader.read_one('<l') # -- Read Number Of Bones
@@ -1194,25 +1194,28 @@ class WhmLoader:
                         self.messages.append(('INFO', f'Loading {mesh_path}'))
                     xreffile = open_reader(file_data)
                     xreffile.skip_relic_chunky()
-                    chunk = xreffile.read_header('DATAFBIF')  # -- Read 'File Burn Info' Header
-                    xreffile.skip(chunk.size)  # -- Skip 'File Burn Info' Chunk
-                    chunk = xreffile.read_header('FOLDRSGM')	# -- Skip 'Folder SGM' Header
+                    chunk = xreffile.read_header('DATAFBIF')
+                    if chunk.typeid == 'DATAFBIF':  # -- Read 'File Burn Info' Header
+                        xreffile.skip(chunk.size)  # -- Skip 'File Burn Info' Chunk
+                        chunk = xreffile.read_header('FOLDRSGM')	# -- Skip 'Folder SGM' Header
+                    else:
+                        assert chunk.typeid == 'FOLDRSGM', f'Expected FOLDRSGM, got {chunk.typeid}'
                     group_name = f'xref_{chunk.name}'
-                    for current_chunk in xreffile.iter_chunks():  # -- Read Chunks Until End Of File
-                        match current_chunk.typeid:
-                            case 'DATASSHR': self.CH_DATASSHR(xreffile)  # -- DATASSHR - Texture Data
-                            case 'DATASKEL': self.CH_DATASKEL(xreffile, xref=True)  # -- FOLDMSLC - Skeleton Data
-                            case 'FOLDMSGR':  # -- Read FOLDMSLC Chunks
-                                for current_chunk in xreffile.iter_chunks():  # -- Read FOLDMSLC Chunks
-                                    if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
-                                        mesh_obj = self.CH_FOLDMSLC(xreffile, mesh_name, xref=True, group_name=group_name)
-                                        props.setup_property(mesh_obj, 'xref_source', str(mesh_path))
-                                    else:
-                                        xreffile.skip(current_chunk.size)
-                                    if current_chunk.typeid == 'DATABVOL':
-                                        break
-                            # case 'DATAMARK': self.CH_DATAMARK(xreffile)
-                            case _: xreffile.skip(current_chunk.size)
+                    chunk_positions = {}
+                    for current_chunk in xreffile.iter_chunks():  # Read Chunks Until End Of File
+                        chunk_positions.setdefault(current_chunk.typeid, []).append((current_chunk, xreffile.stream.tell()))
+                        xreffile.skip(current_chunk.size)
+                    self.load_all_materials(xreffile, chunk_positions)
+                    for current_chunk, pos in chunk_positions.get('FOLDMSGR', []):
+                        xreffile.stream.seek(pos)
+                        mesh_reader = xreffile.read_folder(current_chunk)
+                        for current_chunk in mesh_reader.iter_chunks():  # -- Read FOLDMSLC Chunks
+                            if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
+                                mesh_obj = self.CH_FOLDMSLC(mesh_reader, mesh_name, xref=True, group_name=group_name)
+                                props.setup_property(mesh_obj, 'xref_source', str(mesh_path))
+                            else:
+                                mesh_reader.skip(current_chunk.size)
+                        # case 'DATAMARK': self.CH_DATAMARK(xreffile)
                 else:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
                     self.loaded_resource_stats['errors'] += 1
@@ -1231,6 +1234,22 @@ class WhmLoader:
                     shadow_mesh.vertex_groups.new(name=bone_name).add(
                         list(range(len(shadow_mesh.data.vertices))), 1.0, 'REPLACE')
     
+    def load_all_materials(self, reader: ChunkReader, chunk_positions: dict[str, tuple]):
+        for current_chunk, pos in chunk_positions.get('DATASSHR', []):  # DATASSHR - Texture Data
+            reader.stream.seek(pos)
+            self.CH_DATASSHR(reader)
+        internal_textures = {}
+        for current_chunk, pos in chunk_positions.get('FOLDSTXT', []):  # FOLDSTXT - Reference to an external rtx
+            reader.stream.seek(pos)
+            internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
+        for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
+            reader.stream.seek(pos)
+            internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
+        for current_chunk, pos in chunk_positions.get('FOLDSHDR', []):  # FOLDSHDR - Internal Material
+            reader.stream.seek(pos)
+            mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
+            props.setup_property(mat, 'internal', True)
+
     def load(self, reader: ChunkReader):
         self._reset()
         reader.skip_relic_chunky()
@@ -1244,26 +1263,21 @@ class WhmLoader:
         self.bpy_context.scene.collection.children.link(self.model_root_collection)
         self.model_root_collection.objects.link(self.armature_obj)
 
-        internal_textures = {}
-
+        chunk_positions = {}
         for current_chunk in reader.iter_chunks():  # Read Chunks Until End Of File
-            match current_chunk.typeid:
-                case "DATASSHR": self.CH_DATASSHR(reader)  # DATASSHR - Texture Data
-                case "FOLDSTXT":  # FOLDSTXT - Reference to an external rtx
-                    internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
-                case "FOLDTXTR":  # FOLDTXTR - Internal Texture
-                    internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
-                case "FOLDSHDR":  # FOLDSHDR - Internal Material
-                    mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
-                    props.setup_property(mat, 'internal', True)
-                case "DATASKEL": self.CH_DATASKEL(reader, xref=False)  # DATASKEL - Skeleton Data
-                case "FOLDMSGR": self.CH_FOLDMSGR(reader)  # FOLDMSGR - Mesh Data
-                case "DATAMARK": self.CH_DATAMARK(reader)  # DATAMARK - Marker Data
-                case "FOLDANIM": self.CH_FOLDANIM(reader)  # FOLDANIM - Animations
-                case "DATACAMS": self.CH_DATACAMS(reader)  # DATACAMS - Cameras
-                case _:
-                    self.messages.append(('INFO', f'Skipped unknown chunk {current_chunk.typeid}'))
-                    reader.skip(current_chunk.size)  # Skipping Chunks By Default
+            chunk_positions.setdefault(current_chunk.typeid, []).append((current_chunk, reader.stream.tell()))
+            reader.skip(current_chunk.size)
+        self.load_all_materials(reader, chunk_positions)
+        for typeid, handler in [
+            ('DATASKEL', self.CH_DATASKEL),  # DATASKEL - Skeleton Data
+            ('FOLDMSGR', self.CH_FOLDMSGR),  # FOLDMSGR - Mesh Data
+            ('DATAMARK', self.CH_DATAMARK),  # DATAMARK - Marker Data
+            ('DATACAMS', self.CH_DATACAMS),  # DATACAMS - Cameras
+            ('FOLDANIM', self.CH_FOLDANIM),  # FOLDANIM - Animations
+        ]:
+            for current_chunk, pos in chunk_positions.get(typeid, []):
+                reader.stream.seek(pos)
+                handler(reader)
 
         if self.armature_obj.pose is not None:
             for bone in self.armature_obj.pose.bones:
