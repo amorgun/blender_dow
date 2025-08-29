@@ -397,7 +397,7 @@ class Exporter:
                         key = textures.TeamcolorLayers(node.label[len('color_'):])
                     except KeyError:
                         continue
-                    teamcolor_colors[key] = mathutils.Color(node.color_ramp.elements[-1].color[:3]).from_scene_linear_to_srgb()()
+                    teamcolor_colors[key] = mathutils.Color(node.color_ramp.elements[-1].color[:3]).from_scene_linear_to_srgb()
                 if node.bl_idname == 'ShaderNodeGroup' and node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None):
                     for key in textures.TeamcolorLayers:
                         input_name = f'{key.value}_color'
@@ -511,7 +511,7 @@ class Exporter:
 
                 pil_image = textures.img2pil(image)
                 if pil_image is None:
-                    self.messages.append(('WARNING', f'Error while converting {image.name}: {e!r}'))
+                    self.messages.append(('WARNING', f'Error while converting {image.name}'))
                     return False
 
                 pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
