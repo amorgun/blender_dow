@@ -834,20 +834,25 @@ class WhmLoader:
                         is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
-                mesh = self.created_meshes[obj_name.lower()]
-                create_animation_data(mesh, animation.slots.new(id_type='OBJECT', name=obj_name))
-
-                props.setup_property(mesh, 'force_invisible')
-                mesh['force_invisible'] = is_invisible
-                mesh.keyframe_insert(data_path='["force_invisible"]', frame=0)
+                mesh = self.created_meshes.get(obj_name.lower())
+                if mesh is not None:
+                    create_animation_data(mesh, animation.slots.new(id_type='OBJECT', name=obj_name))
+                    props.setup_property(mesh, 'force_invisible')
+                    mesh['force_invisible'] = is_invisible
+                    mesh.keyframe_insert(data_path='["force_invisible"]', frame=0)
+                else:
+                    self.messages.append(('WARNING', f'Cannot find loaded mesh "{obj_name}"'))
                 for j in range(keys_vis):  # -- Read Visibility Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_vis = reader.read_one('<f')  # -- Read Visibility
+                    if mesh is None:
+                        continue
                     mesh.color[3] = key_vis
                     if j == 0:
                         mesh.keyframe_insert(data_path='color', frame=0, index=3)
                     mesh.keyframe_insert(data_path='color', frame=frame, index=3)
-                mesh.color[3] = 1.0
+                if mesh is not None:
+                    mesh.color[3] = 1.0
             elif mode == 0:  # -- Texture
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 tex_anim_type = reader.read_one('<l')  # -- 1-U 2-V 3-TileU 4-TileV
