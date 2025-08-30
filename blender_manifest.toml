@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "blender_dow"
-version = "0.15.1"
+version = "0.15.1-a2"
 name = "Dawn of War Import/Export"
 tagline = "Import and export of Dawn of War models"
 maintainer = "amorgun"
