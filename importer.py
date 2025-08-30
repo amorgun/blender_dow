@@ -1189,6 +1189,7 @@ class WhmLoader:
         for i in range(num_meshes):  # -- Read Each Mesh
             mesh_name = reader.read_str()  # -- Read Mesh Name
             mesh_path: pathlib.Path = pathlib.Path(reader.read_str())  # -- Read Mesh Path
+            mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
             if mesh_path and mesh_path != pathlib.Path(''):
                 self.loaded_resource_stats['attempted'] += 1
                 filename = mesh_path.with_suffix('.whm')
@@ -1216,7 +1217,7 @@ class WhmLoader:
                         mesh_reader = xreffile.read_folder(current_chunk)
                         for current_chunk in mesh_reader.iter_chunks():  # -- Read FOLDMSLC Chunks
                             if current_chunk.typeid == 'FOLDMSLC' and current_chunk.name.lower() == mesh_name.lower():
-                                mesh_obj = self.CH_FOLDMSLC(mesh_reader, mesh_name, xref=True, group_name=group_name)
+                                mesh_obj = self.CH_FOLDMSLC(mesh_reader, mesh_name, xref=mesh_parent_idx != -1, group_name=group_name)
                                 props.setup_property(mesh_obj, 'xref_source', str(mesh_path))
                             else:
                                 mesh_reader.skip(current_chunk.size)
@@ -1224,7 +1225,6 @@ class WhmLoader:
                 else:
                     self.messages.append(('WARNING', f'Cannot find file {filename}'))
                     self.loaded_resource_stats['errors'] += 1
-            mesh_parent_idx = reader.read_one('<l')  # -- Read Mesh Parent
             if mesh_parent_idx != -1:
                 mesh = self.created_meshes.get(mesh_name.lower())
                 if mesh is None:
