@@ -536,7 +536,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     actions: bpy.props.CollectionProperty(type=ActionSettings)
-    step: bpy.props.IntProperty(default=2)
+    step: bpy.props.IntProperty(default=1)
     clear_constraints: bpy.props.BoolProperty(default=True)
     selected_index: bpy.props.IntProperty()
 
