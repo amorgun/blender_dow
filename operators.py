@@ -777,12 +777,11 @@ class DowTools(bpy.types.Panel):
 
                 if utils.can_be_force_skinned(context.active_object):
                     layout.row().label(text='Force Skinning: Yes')
-                    make_prop_row(layout, context.active_object, 'xref_source')
                     layout.row().prop(context.active_object, 'dow_shadow_mesh')
                 else:
                     layout.row().label(text='Force Skinning: No')
-                    layout.row().label(text='Cannot be xreffed', icon='ERROR')
                     layout.row().label(text='Cannot have a shadow', icon='ERROR')
+                make_prop_row(layout, context.active_object, 'xref_source')
                 layout.separator()
                 current_action = None
                 current_anim_data = get_animation_data_with_action(context.active_object)

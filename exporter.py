@@ -859,12 +859,8 @@ class Exporter:
                 xref_source = obj_orig.get('xref_source', '').strip()
                 if xref_source:
                     # TODO check if file exists
-                    if vertex_groups != []:
-                        self.messages.append(('WARNING', f'Mesh "{obj.name}" is weighted to {len(vertex_groups)} bones. Xrefed meshes cannot be attached to more than 1 bone.'))
-                        xref_source = ''
-                    else:
-                        mesh_xrefs[obj.name] = xref_source
-                        continue
+                    mesh_xrefs[obj.name] = xref_source
+                    continue
 
                 with writer.start_chunk('FOLDMSLC', name=obj.name):
                     with writer.start_chunk('DATADATA'):

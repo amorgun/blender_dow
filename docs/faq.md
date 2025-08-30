@@ -139,8 +139,7 @@ Keyframe it the same way you keyframe any other property.
 The mesh is Force Skinned when it's fully attached to a single bone. It can use either Weight Painting or parenting to the bone.  
 This provides a couple of advantages:
 1. Force-Skinned meshes are extremely cheap for the DoW engine so you can get huge meshes to work in-game
-2. Your model can reuse Force Skinned meshes from other models using the `xref_source` attribute.
-3. It helps reduce the size of the exported file
+2. It helps reduce the size of the exported file
 `Force Skinning` is detected automatically and you can see it on the addon tools panel:  
 
 ![force_skinning](../images/faq/force_skinning.png)
