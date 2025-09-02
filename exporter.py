@@ -276,7 +276,6 @@ class Exporter:
         for slot, input_idname in [
             (textures.MaterialLayers.DIFFUSE, 'Base Color'),
             (textures.MaterialLayers.SPECULAR_MASK, 'Specular IOR Level'),
-            (textures.MaterialLayers.SPECULAR_REFLECTION, 'Specular Tint'),
             (textures.MaterialLayers.SELF_ILLUMUNATION, 'Emission Strength'),
         ]:
             for link in mat.node_tree.links:
