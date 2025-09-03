@@ -13,6 +13,11 @@ ARGS = {
         'subtype': 'FILE_PATH',
         'description': 'Path to where the game will look for this material. Useful for reusing the same material between multiple models',
     },
+    (bpy.types.ShaderNodeTexImage, 'image_path'): {
+        'default': '',
+        'subtype': 'FILE_PATH',
+        'description': 'Path to where the game will look for this image. Useful for reusing the same material between multiple models',
+    },
     (bpy.types.Material, 'internal'): {
         'default': False,
         'description': 'Do not export this material into a separate file and keep it inside the model file',

@@ -32,7 +32,7 @@ Go to `Edit -> Preferences -> Add-ons -> Dawn of War Import/Export`, click on th
 ![preferences2](../images/first_steps/preferences2.png)
 
 ## Does the addon work with the Definitive Edition?
-Yes. The addon supports the new `.whm`+`.rtx` scheme and exports the old `.whm` + `.rsh` scheme, which still works in DE.
+Yes. The addon supports the new `.whm`+`.rtx` scheme and exports both new `.whm`+`.rtx` as well as the old `.whm` + `.rsh` schemes, both of which work in DE.
 
 ## Where can I get the latest version of the addon?
 Visit the [**Releases page**](https://github.com/amorgun/blender_dow/releases/) for the latest stable and dev versions.

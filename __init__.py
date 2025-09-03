@@ -362,6 +362,17 @@ class ExportModel:
         default=True,
     )
 
+    texture_format: bpy.props.EnumProperty(
+        name='Texture format',
+        description='How to store textures',
+        items=(
+            (exporter.MaterialExportFormat.RSH, 'Vanilla', 'Export textures to rsh files, compatible with both AE and DE'),
+            (exporter.MaterialExportFormat.RTX, 'Definitive Edition', 'Export textures to the DE rtx format, supporting new lighting'),
+        ),
+        default='rsh',
+    )
+
+
     max_texture_size: bpy.props.IntProperty(
         name='Max texture size',
         description='Resize exported textures to the given max size.',
@@ -430,7 +441,7 @@ class ExportModel:
         assert self.FORMAT is not None
         addon_prefs = get_preferences(context)
         save_args(addon_prefs, self, f'export_{self.filename_ext[1:]}',
-                  'filepath', 'object_name', 'meta', 'convert_textures', 'max_texture_size',
+                  'filepath', 'object_name', 'meta', 'convert_textures', 'texture_format', 'max_texture_size',
                   'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout', 'override_files',
                   'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
                   )
@@ -447,12 +458,13 @@ class ExportModel:
         }[self.store_layout], subfolder=data_subfolder)
         object_name = self.object_name if self.object_name else filepath.stem
         with open(self.filepath, 'wb') as f:
-            writer = exporter.ChunkWriter(f, exporter.CHUNK_VERSIONS[self.FORMAT])
+            writer = exporter.ChunkWriter(f, exporter.get_chunk_versions(self.FORMAT, self.texture_format))
             ex = exporter.Exporter(paths,
                                    override_files=self.override_files,
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
+                                   material_export_format=self.texture_format,
                                    teamcolored_rtx_suffix=self.teamcolored_rtx_suffix,
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
@@ -510,6 +522,8 @@ class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
         options={'HIDDEN'},
         maxlen=255,
     )
+
+    texture_format: bpy.props.StringProperty(default=exporter.MaterialExportFormat.RSH, options={'HIDDEN'})
 
     FORMAT = exporter.ExportFormat.SGM
 

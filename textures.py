@@ -11,7 +11,8 @@ class MaterialLayers(str, enum.Enum):
     DIFFUSE = 'diffuse'
     SPECULAR_MASK = 'specularity'
     SPECULAR_REFLECTION = 'reflection'
-    SELF_ILLUMUNATION = 'self_illumination'
+    SELF_ILLUMUNATION_MASK = 'self_illumination'
+    SELF_ILLUMUNATION_COLOR = 'self_illumination_color'
     OPACITY = 'opacity'
 
 
@@ -44,7 +45,7 @@ def img2pil(bpy_image) -> PilImage:
     return PilImage.open(texture_stream)
 
 
-def encode_dds(pil_image: PilImage, path: str):
+def encode_dds(pil_image: PilImage, path: str, force_type: str = None):
     import quicktex.dds
     import quicktex.s3tc.bc1
     import quicktex.s3tc.bc3
@@ -60,10 +61,10 @@ def encode_dds(pil_image: PilImage, path: str):
         alpha_hist = pil_image.getchannel('A').histogram()
         has_alpha = any([a > 0 for a in alpha_hist[:-1]])
         # TODO test for 1-bit alpha
-    if has_alpha:
-        quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(path)
-    else:
+    if force_type == 'dxt1' or (not force_type and not has_alpha):
         quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(path)
+    else:
+        quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(path)
 
 # if (imageType == 5) return FileFormats.ImgType.DXT1DDS;
 # if (imageType == 6) return FileFormats.ImgType.DXT3DDS;

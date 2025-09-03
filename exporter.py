@@ -23,6 +23,11 @@ class ExportFormat(enum.Enum):
     WHM = enum.auto()
     SGM = enum.auto()
 
+@enum.unique
+class MaterialExportFormat(str, enum.Enum):
+    RSH = 'rsh',
+    RTX = 'rtx',
+
 
 class FileDispatcher:
     @enum.unique
@@ -82,6 +87,7 @@ CHUNK_VERSIONS = {
                     'DATADATA': {'version': 2},
                 }
             },
+            'FOLDSTXT':  {'version': 1},
             'FOLDSHDR': {
                 'version': 1,
                 'DATAINFO': {'version': 1},
@@ -156,6 +162,14 @@ CHUNK_VERSIONS = {
     }
 }
 
+def get_chunk_versions(export_format: ExportFormat, material_format: MaterialExportFormat):
+    import copy
+
+    res = copy.deepcopy(CHUNK_VERSIONS[export_format])
+    if export_format == ExportFormat.WHM and material_format == MaterialExportFormat.RTX:
+        res['FOLDRSGM']['version'] = 4
+    return res
+
 
 class Exporter:
     def __init__(
@@ -164,10 +178,11 @@ class Exporter:
             override_files: bool = False,
             format: ExportFormat = ExportFormat.WHM,
             convert_textures: bool = True,
+            material_export_format: MaterialExportFormat = MaterialExportFormat.RSH,
             default_texture_path: str = '',
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
-            export_rtx: bool = True,
+            export_teamcolored_rtx: bool = True,
             teamcolored_rtx_suffix: str = '_default_0',
             vertex_position_merge_threshold: float = 0,
             vertex_normal_merge_threshold: float = 0.01,
@@ -180,10 +195,11 @@ class Exporter:
         self.override_files = override_files
         self.format = format
         self.convert_textures = convert_textures
+        self.material_export_format = material_export_format
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
-        self.export_rtx = export_rtx
+        self.export_teamcolored_rtx = export_teamcolored_rtx
         self.teamcolored_rtx_suffix = teamcolored_rtx_suffix
         self.vertex_position_merge_threshold = vertex_position_merge_threshold
         self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
@@ -195,6 +211,7 @@ class Exporter:
         self.exported_bones = None
         self.exported_meshes = None
         self.exported_materials = None
+        self.exported_images = None
         self.bone_to_idx = {}
 
     def copy_file(self, src: pathlib.Path, dst: pathlib.Path):
@@ -253,6 +270,7 @@ class Exporter:
 
     def write_materials(self, writer: ChunkWriter):
         self.exported_materials = {}
+        self.exported_images = {}
         mat_users = bpy.data.user_map(subset=bpy.data.materials)
         for mat in bpy.data.materials:
             if not mat_users[mat]:
@@ -276,7 +294,8 @@ class Exporter:
         for slot, input_idname in [
             (textures.MaterialLayers.DIFFUSE, 'Base Color'),
             (textures.MaterialLayers.SPECULAR_MASK, 'Specular IOR Level'),
-            (textures.MaterialLayers.SELF_ILLUMUNATION, 'Emission Strength'),
+            (textures.MaterialLayers.SELF_ILLUMUNATION_MASK, 'Emission Strength'),
+            (textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, 'Emission Color'),
         ]:
             for link in mat.node_tree.links:
                 if (
@@ -300,16 +319,18 @@ class Exporter:
             return
 
         images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
-        if mat.get('internal'):
-            export_success = self.write_rsh_chunks(writer, images_to_export, mat_path, mat.name)
-            if not export_success:
+        if self.material_export_format == MaterialExportFormat.RSH:
+            if mat.get('internal'):
+                export_success = self.write_rsh_chunks(writer, images_to_export, mat_path, mat.name)
+                if not export_success:
+                    return
+                self.exported_materials[mat.name] = str(mat_path)
                 return
-            self.exported_materials[mat.name] = str(mat_path)
-            return
 
-        with writer.start_chunk('DATASSHR', name=str(mat_path)):  # Unused, can be deleted
-            writer.write_str(str(mat_path))
-        self.exported_materials[mat.name] = str(mat_path)
+            with writer.start_chunk('DATASSHR', name=str(mat_path)):  # Unused, can be deleted
+                writer.write_str(str(mat_path))
+            self.exported_materials[mat.name] = str(mat_path)
+
 
         teamcolor_node_labels = {
             f'color_layer_{slot.value}' if slot not in (
@@ -369,14 +390,79 @@ class Exporter:
         }
 
         if self.convert_textures:
-            rsh_path = self.paths.get_path(f'{mat_path}.rsh')
-            if self.export_rsh(
-                images_to_export,
-                rsh_path,
-                mat_path,
-                mat.name,
-            ):
-                self.paths.add_info(f'{mat_path}.rsh', rsh_path)
+            if self.material_export_format == MaterialExportFormat.RSH:
+                rsh_path = self.paths.get_path(f'{mat_path}.rsh')
+                if self.export_rsh(
+                    images_to_export,
+                    rsh_path,
+                    mat_path,
+                    mat.name,
+                ):
+                    self.paths.add_info(f'{mat_path}.rsh', rsh_path)
+            else:
+                image_suffixes = {
+                    textures.MaterialLayers.DIFFUSE: '',
+                    textures.MaterialLayers.OPACITY: '_default_opacity',
+                    textures.MaterialLayers.SPECULAR_MASK: '_default_spc',
+                    textures.MaterialLayers.SPECULAR_REFLECTION: '_default_reflect',
+                    textures.MaterialLayers.SELF_ILLUMUNATION_MASK: '_default_emi',
+                    textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: '_default_emi_color',
+                }
+                material_images = {}
+                mat_path = exported_nodes[textures.MaterialLayers.DIFFUSE].get('image_path', '').strip() or mat_path
+                for layer, image_node in exported_nodes.items():
+                    if image_node is None or image_node.image is None:
+                        continue
+                    image = image_node.image
+                    img_path = image_node.get('image_path', '').strip() or f'{mat_path}{image_suffixes[layer]}'
+                    rtx_path = self.paths.get_path(f'{img_path}.rtx')
+                    if img_path in self.exported_images:
+                        material_images[layer] = img_path
+                    if not self.export_de_rtx(
+                        image,
+                        rtx_path,
+                        img_path,
+                    ):
+                        self.messages.append(('WARNING', f'Error while converting image {image.name}: {e!r}'))
+                        continue
+                    self.paths.add_info(f'{img_path}.rtx', rtx_path)
+                    with writer.start_chunk('FOLDSTXT', name=str(img_path)):
+                        pass
+                    material_images[layer] = img_path
+                    self.exported_images[img_path] = image
+                if textures.MaterialLayers.DIFFUSE not in material_images:
+                    return
+                material_images.setdefault(textures.MaterialLayers.OPACITY, mat_path)
+                material_images.setdefault(textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(textures.MaterialLayers.SELF_ILLUMUNATION_MASK))
+                self.exported_materials[mat.name] = pathlib.Path(mat_path).name
+                with writer.start_chunk('FOLDSHDR', name=mat.name):
+                    with writer.start_chunk('DATAINFO'):
+                        writer.write_struct('<2L4BLx', 6, 7, 0xf3, 0x04, 0xb5, 0x42, 1)  # sometimes 0x41
+                    for channel_idx, key in enumerate([
+                        textures.MaterialLayers.DIFFUSE,
+                        textures.MaterialLayers.SPECULAR_MASK,
+                        textures.MaterialLayers.SPECULAR_REFLECTION,
+                        textures.MaterialLayers.SELF_ILLUMUNATION_MASK,
+                        textures.MaterialLayers.OPACITY,
+                        'unknown',
+                        textures.MaterialLayers.SELF_ILLUMUNATION_COLOR,
+                    ]):
+                        with writer.start_chunk('DATACHAN'):
+                            has_data = material_images.get(key) is not None
+                            colour_mask = {
+                                textures.MaterialLayers.DIFFUSE: [255] * 4,
+                                textures.MaterialLayers.OPACITY: [255] * 4,
+                                textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: [255] * 4,
+                            }.get(key, [0, 0, 0, 255])
+                            writer.write_struct('<2l4B', channel_idx, int(has_data), *colour_mask)
+                            writer.write_str(str(material_images.get(key, '')))
+                            writer.write_struct('<3L', int(has_data), 5, 7 if key == textures.MaterialLayers.SPECULAR_REFLECTION else 0)
+                            for idx in range(4):
+                                pairs = [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (0.0, 0.0)]
+                                if idx % 2 == 1:
+                                    pairs = pairs[3:] + pairs[:3]
+                                for c in pairs:
+                                    writer.write_struct('<2f', *c)
 
             wtp_path = self.paths.get_path(f'{mat_path}_default.wtp')
             teamcolor_images = {k: v.image for k, v in teamcolor_image_nodes.items() if v}
@@ -403,15 +489,16 @@ class Exporter:
                         if input_name not in node.inputs:
                             continue
                         teamcolor_colors[key] = mathutils.Color(node.inputs[input_name].default_value[:3]).from_scene_linear_to_srgb()
-            if self.export_teamcolored_rtx(
-                teamcolor_images,
-                teamcolor_colors,
-                teamcolor_badge_info,
-                teamcolor_banner_info,
-                rtx_path,
-                mat.name,
-            ):
-                self.paths.add_info(f'{mat_path}{self.teamcolored_rtx_suffix}.rtx', rtx_path)
+            if self.export_teamcolored_rtx:
+                if self.do_export_teamcolored_rtx(
+                    teamcolor_images,
+                    teamcolor_colors,
+                    teamcolor_badge_info,
+                    teamcolor_banner_info,
+                    rtx_path,
+                    mat.name,
+                ):
+                    self.paths.add_info(f'{mat_path}{self.teamcolored_rtx_suffix}.rtx', rtx_path)
         else:
             for image_prefix, dst_suffix, images in [
                 ('', '.rsh', {
@@ -496,7 +583,7 @@ class Exporter:
             textures.MaterialLayers.DIFFUSE: '',
             textures.MaterialLayers.SPECULAR_MASK: '_spec',
             textures.MaterialLayers.SPECULAR_REFLECTION: '_reflect',
-            textures.MaterialLayers.SELF_ILLUMUNATION: '_self_illum',
+            textures.MaterialLayers.SELF_ILLUMUNATION_MASK: '_self_illum',
             textures.MaterialLayers.OPACITY: '_alpha',
         }
         with tempfile.TemporaryDirectory() as t:
@@ -658,7 +745,50 @@ class Exporter:
             self.copy_file(exported_file, dst_path)
         return True
 
-    def export_teamcolored_rtx(self, teamcolor_images: dict, teamcolor_colors: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, mat_name: str) -> bool:
+    def export_de_rtx(self, image, dst_path: pathlib.Path, mat_name: str) -> bool:
+        result = textures.img2pil(image)
+        if result is None:
+            return False
+        with tempfile.TemporaryDirectory() as t:
+            temp_dir = pathlib.Path(t)
+            exported_file = temp_dir / dst_path.name
+            with exported_file.open('wb') as f:
+                writer = ChunkWriter(f, {
+                    'FOLDTXTR': {
+                        'version': 1,
+                        'DATAHEAD': {'version': 1},
+                        'DATAINFO': {'version': 3},
+                        'FOLDIMAG': {
+                            'version': 1,
+                            'DATAATTR': {'version': 2},
+                            'DATADATA': {'version': 2},
+                        }
+                    }
+                })
+                result.thumbnail((self.max_texture_size, self.max_texture_size))
+                tmp_dds_path = temp_dir / 'exported.rtx'
+                textures.encode_dds(result, tmp_dds_path)
+                texture_stream = tmp_dds_path.open('rb')
+                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+                self.write_relic_chunky(writer)
+                with writer.start_chunk('FOLDTXTR', name=mat_name):
+                    with writer.start_chunk('DATAHEAD'):
+                        writer.write_struct('<2l', image_type, 1)  # num_images
+                    if self.make_oe_compatable_textures:
+                        with writer.start_chunk('DATAINFO'):
+                            writer.write_struct('<4l', image_type, width, height, 1)  # num_images
+                    with writer.start_chunk('FOLDIMAG'):
+                        with writer.start_chunk('DATAATTR'):
+                            writer.write_struct('<4l', 0x0b, width, height, num_mips)  # always 0x0b
+                        with writer.start_chunk('DATADATA'):
+                            with texture_stream:
+                                shutil.copyfileobj(texture_stream, writer)
+            dst_path.parent.mkdir(exist_ok=True, parents=True)
+            self.copy_file(exported_file, dst_path)
+        return True
+
+
+    def do_export_teamcolored_rtx(self, teamcolor_images: dict, teamcolor_colors: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, mat_name: str) -> bool:
         from PIL import ImageChops, ImageOps
 
         base_image = teamcolor_images.get(textures.TeamcolorLayers.DEFAULT)

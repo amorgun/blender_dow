@@ -223,10 +223,10 @@ class WhmLoader:
                 0: ([node_calc_spec.inputs['A'] if has_legacy_specular else node_final.inputs['Base Color'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
                 1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_final.inputs['Specular IOR Level'], node_final.inputs['Specular Tint']], textures.MaterialLayers.SPECULAR_MASK),
                 2: ([node_calc_spec.inputs['B']] if has_legacy_specular else [], textures.MaterialLayers.SPECULAR_REFLECTION),
-                3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION),
+                3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION_MASK),
                 4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
                 5: [[], None],  # Unused
-                6: [[], None],  # TODO Probably emission color
+                6: [[node_final.inputs['Emission Color']], textures.MaterialLayers.SELF_ILLUMUNATION_COLOR],  # TODO Probably emission color
             }[channel_idx]
             if node_label is None:
                 continue
@@ -237,6 +237,7 @@ class WhmLoader:
                 if node_image is None:
                     self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label} texture ("{texture_name}")'))
                     continue
+                props.setup_property(node_tex, 'image_path', node_image.get('source_rtx', ""))
                 node_tex.image = node_image
                 node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
@@ -1246,7 +1247,8 @@ class WhmLoader:
         internal_textures = {}
         for current_chunk, pos in chunk_positions.get('FOLDSTXT', []):  # FOLDSTXT - Reference to an external rtx
             reader.stream.seek(pos)
-            internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
+            image = internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
+            image["source_rtx"] = current_chunk.name
         for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
             reader.stream.seek(pos)
             internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
