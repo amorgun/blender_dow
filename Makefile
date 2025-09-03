@@ -7,7 +7,7 @@ all: wheels build
 
 build: __init__.py importer.py exporter.py chunky.py textures.py utils.py operators.py props.py \
  slpp.py blender_manifest.toml sga.py dow_layout.py \
- LICENSE README.md docs/export.md docs/magic.md docs/tts_import.md default_badge.tga default_banner.tga
+ LICENSE README.md docs/export.md docs/magic.md docs/tts_import.md docs/faq.md default_badge.tga default_banner.tga
 	mkdir $(TMP_DIR); \
 	cp -r ./wheels $^ $(TMP_DIR); \
 	cp --parents $^ $(TMP_DIR); \
