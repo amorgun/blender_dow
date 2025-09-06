@@ -145,7 +145,9 @@ def try_find_path(root: pathlib.Path, *parts: str) -> pathlib.Path:
         for p in iter_parts:
             curr /= p
         return curr
-    for part in iter_parts:
+    for part_idx, part in enumerate(iter_parts):
+        if part_idx == 0 and part.startswith('data:'):
+            part = part[len('data:'):]
         for part_case in iter_path_candidates(part):
             if (candidate := curr / part_case).exists():
                 curr = candidate
