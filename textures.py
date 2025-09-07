@@ -29,6 +29,12 @@ class TeamcolorLayers(str, enum.Enum):
     BANNER = 'banner'
 
 
+@enum.unique
+class DdsType(enum.Enum):
+    DXT1 = enum.auto()
+    DXT5 = enum.auto()
+
+
 def img2pil(bpy_image) -> PilImage:
     texture_data = None
     if bpy_image.packed_files:
@@ -45,7 +51,7 @@ def img2pil(bpy_image) -> PilImage:
     return PilImage.open(texture_stream)
 
 
-def encode_dds(pil_image: PilImage, path: str, force_type: str = None):
+def encode_dds(pil_image: PilImage, path: str, force_type: DdsType = None):
     import quicktex.dds
     import quicktex.s3tc.bc1
     import quicktex.s3tc.bc3
@@ -61,7 +67,7 @@ def encode_dds(pil_image: PilImage, path: str, force_type: str = None):
         alpha_hist = pil_image.getchannel('A').histogram()
         has_alpha = any([a > 0 for a in alpha_hist[:-1]])
         # TODO test for 1-bit alpha
-    if force_type == 'dxt1' or (not force_type and not has_alpha):
+    if force_type is DdsType.DXT1 or (not force_type and not has_alpha):
         quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(path)
     else:
         quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(path)

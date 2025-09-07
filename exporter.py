@@ -422,6 +422,7 @@ class Exporter:
                         image,
                         rtx_path,
                         img_path,
+                        force_type=textures.DdsType.DXT1 if layer == textures.MaterialLayers.SPECULAR_MASK else None,
                     ):
                         self.messages.append(('WARNING', f'Error while converting image {image.name}: {e!r}'))
                         continue
@@ -433,11 +434,11 @@ class Exporter:
                 if textures.MaterialLayers.DIFFUSE not in material_images:
                     return
                 material_images.setdefault(textures.MaterialLayers.OPACITY, mat_path)
-                material_images.setdefault(textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(textures.MaterialLayers.SELF_ILLUMUNATION_MASK))
+                material_images.setdefault(textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(textures.MaterialLayers.SELF_ILLUMUNATION_MASK, ''))
                 self.exported_materials[mat.name] = pathlib.Path(mat_path).name
                 with writer.start_chunk('FOLDSHDR', name=mat.name):
                     with writer.start_chunk('DATAINFO'):
-                        writer.write_struct('<2L4BLx', 6, 7, 0xf3, 0x04, 0xb5, 0x42, 1)  # sometimes 0x41
+                        writer.write_struct('<2L4BLx', 6, 7, 243, 4, 181, 66, 1)  # from 64 to 67
                     for channel_idx, key in enumerate([
                         textures.MaterialLayers.DIFFUSE,
                         textures.MaterialLayers.SPECULAR_MASK,
@@ -745,7 +746,7 @@ class Exporter:
             self.copy_file(exported_file, dst_path)
         return True
 
-    def export_de_rtx(self, image, dst_path: pathlib.Path, mat_name: str) -> bool:
+    def export_de_rtx(self, image, dst_path: pathlib.Path, mat_name: str, force_type: textures.DdsType = None) -> bool:
         result = textures.img2pil(image)
         if result is None:
             return False
@@ -767,7 +768,7 @@ class Exporter:
                 })
                 result.thumbnail((self.max_texture_size, self.max_texture_size))
                 tmp_dds_path = temp_dir / 'exported.rtx'
-                textures.encode_dds(result, tmp_dds_path)
+                textures.encode_dds(result, tmp_dds_path, force_type=force_type)
                 texture_stream = tmp_dds_path.open('rb')
                 is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
                 self.write_relic_chunky(writer)
@@ -779,7 +780,7 @@ class Exporter:
                             writer.write_struct('<4l', image_type, width, height, 1)  # num_images
                     with writer.start_chunk('FOLDIMAG'):
                         with writer.start_chunk('DATAATTR'):
-                            writer.write_struct('<4l', 0x0b, width, height, num_mips)  # always 0x0b
+                            writer.write_struct('<4l', 0x0b if image_type == 0x07 else 0x08, width, height, num_mips)
                         with writer.start_chunk('DATADATA'):
                             with texture_stream:
                                 shutil.copyfileobj(texture_stream, writer)

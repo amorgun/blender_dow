@@ -1246,7 +1246,6 @@ class WhmLoader:
             self.CH_DATASSHR(reader)
         internal_textures = {}
         for current_chunk, pos in chunk_positions.get('FOLDSTXT', []):  # FOLDSTXT - Reference to an external rtx
-            reader.stream.seek(pos)
             image = internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
             image["source_rtx"] = current_chunk.name
         for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
