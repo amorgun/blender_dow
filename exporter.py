@@ -290,10 +290,11 @@ class Exporter:
         exported_nodes = {node.label: node
                         for node in mat.node_tree.nodes
                         if node.bl_idname == 'ShaderNodeTexImage'
-                        and node.label in textures.MaterialLayers.__members__}
+                        and node.label in textures.MaterialLayers.__members__.values()}
         for slot, input_idname in [
             (textures.MaterialLayers.DIFFUSE, 'Base Color'),
             (textures.MaterialLayers.SPECULAR_MASK, 'Specular IOR Level'),
+            (textures.MaterialLayers.SPECULAR_MASK, 'Metallic'),
             (textures.MaterialLayers.SELF_ILLUMUNATION_MASK, 'Emission Strength'),
             (textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, 'Emission Color'),
         ]:
@@ -308,21 +309,22 @@ class Exporter:
                     elif exported_nodes.get(slot) != link.from_node:
                         self.messages.append(('WARNING', f'Multiple candidates found for {slot.value.upper()} layer in material {mat.name}'))
                     break
-        if textures.MaterialLayers.DIFFUSE not in exported_nodes:
+        if (self.material_export_format == MaterialExportFormat.RSH
+            and textures.MaterialLayers.DIFFUSE not in exported_nodes):
             for node in mat.node_tree.nodes:
                 if node.bl_idname == 'ShaderNodeTexImage':
                     exported_nodes[textures.MaterialLayers.DIFFUSE] = node
                     break
-
-        if textures.MaterialLayers.DIFFUSE not in exported_nodes:
-            self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
-            return
+            else:
+                self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
+                return
 
         images_to_export = {k: v.image if v else v for k, v in exported_nodes.items()}
         if self.material_export_format == MaterialExportFormat.RSH:
             if mat.get('internal'):
-                export_success = self.write_rsh_chunks(writer, images_to_export, mat_path, mat.name)
+                export_success = self.write_rsh_chunks(writer, images_to_export, mat_path, str(mat_path))
                 if not export_success:
+                    self.messages.append(('WARNING', f'Cannot export material {mat.name}'))
                     return
                 self.exported_materials[mat.name] = str(mat_path)
                 return
@@ -409,7 +411,8 @@ class Exporter:
                     textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: '_default_emi_color',
                 }
                 material_images = {}
-                mat_path = exported_nodes[textures.MaterialLayers.DIFFUSE].get('image_path', '').strip() or mat_path
+                mat_path = exported_nodes.get(textures.MaterialLayers.DIFFUSE, {}).get('image_path', '').strip() or mat_path
+                mat_name = pathlib.Path(mat_path).name
                 for layer, image_node in exported_nodes.items():
                     if image_node is None or image_node.image is None:
                         continue
@@ -431,14 +434,20 @@ class Exporter:
                         pass
                     material_images[layer] = img_path
                     self.exported_images[img_path] = image
-                if textures.MaterialLayers.DIFFUSE not in material_images:
-                    return
-                material_images.setdefault(textures.MaterialLayers.OPACITY, mat_path)
+                material_images.setdefault(textures.MaterialLayers.OPACITY, material_images.get(textures.MaterialLayers.DIFFUSE, ''))
                 material_images.setdefault(textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(textures.MaterialLayers.SELF_ILLUMUNATION_MASK, ''))
-                self.exported_materials[mat.name] = pathlib.Path(mat_path).name
-                with writer.start_chunk('FOLDSHDR', name=mat.name):
+                self.exported_materials[mat.name] = mat_name
+                roughness = 0
+                for node in mat.node_tree.nodes:
+                    if node.bl_idname == 'ShaderNodeBsdfPrincipled':
+                        roughness = node.inputs['Roughness'].default_value
+                        break
+                with writer.start_chunk('FOLDSHDR', name=mat_name):
                     with writer.start_chunk('DATAINFO'):
-                        writer.write_struct('<2L4BLx', 6, 7, 243, 4, 181, 66, 1)  # from 64 to 67
+                        roughness_val = 10
+                        if roughness != 0:
+                            roughness_val = 2 ** (max(0.1, min(10, 1 / roughness - 1)))
+                        writer.write_struct('<2LfLx', 6, 7, roughness_val, 1)
                     for channel_idx, key in enumerate([
                         textures.MaterialLayers.DIFFUSE,
                         textures.MaterialLayers.SPECULAR_MASK,

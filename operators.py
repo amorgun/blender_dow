@@ -859,6 +859,10 @@ class DowMaterialTools(bpy.types.Panel):
             node = None
             if mat.node_tree is not None:
                 node = mat.node_tree.nodes.get('Mapping')
+                for shader_node in mat.node_tree.nodes:
+                    if shader_node.bl_idname == 'ShaderNodeBsdfPrincipled':
+                        layout.row().prop(shader_node.inputs['Roughness'], 'default_value', text='Roughness')
+                        break
             if node is not None:
                 row = layout.row()
                 row.label(text='uv_offset')

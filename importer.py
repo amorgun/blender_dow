@@ -160,7 +160,7 @@ class WhmLoader:
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'DATAINFO':
-                    num_images, *info_bytes = reader.read_struct('<2L 4B L x')
+                    six_, seven_, roughness_data, one_ = reader.read_struct('<2LfLx')
                 case 'DATACHAN':
                     channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
                     channel_texture_name = reader.read_str()
@@ -183,18 +183,23 @@ class WhmLoader:
         mat.use_nodes = True
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
+        if roughness_data > 1:
+            node_final.inputs['Metallic'].default_value = 1
+            node_final.inputs['Roughness'].default_value = 1 / (math.log2(roughness_data) + 1)
         node_final.inputs['Specular IOR Level'].default_value = 0
+        node_final.location = 150, 400
+        mat.node_tree.nodes[1].location = node_final.location[0] + 400, node_final.location[1]
 
         node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
-        node_uv.location = -800, 200
+        node_uv.location = node_final.location[1] - 1250, node_final.location[1] - 200
         node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
         node_uv_offset.label = 'UV offset'
         node_uv_offset.name = 'Mapping'
-        node_uv_offset.location = -600, 200
+        node_uv_offset.location = node_final.location[0] - 759, node_final.location[1] - 200
         links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
 
         node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
-        node_object_info.location = -600, 400
+        node_object_info.location = node_uv_offset.location[0], node_final.location[1]
 
         has_legacy_specular = any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
         if has_legacy_specular:
@@ -203,14 +208,13 @@ class WhmLoader:
             node_calc_spec.clamp_result = True
             node_calc_spec.inputs[0].default_value = 0
             node_calc_spec.label = 'Apply spec'
-            node_calc_spec.location = -150, 400
-            links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
+            node_calc_spec.location = node_final.location[0] - 300, node_final.location[1]
 
         node_calc_alpha = mat.node_tree.nodes.new('ShaderNodeMath')
         node_calc_alpha.operation = 'MULTIPLY'
         node_calc_alpha.use_clamp = True
         node_calc_alpha.inputs[1].default_value = 1
-        node_calc_alpha.location = -150, 150
+        node_calc_alpha.location = node_final.location[0] - 300, node_final.location[1] - 250,
         links.new(node_object_info.outputs['Alpha'], node_calc_alpha.inputs[0])
         links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
 
@@ -221,7 +225,7 @@ class WhmLoader:
             channel_idx = channel['idx']
             inputs, node_label = {
                 0: ([node_calc_spec.inputs['A'] if has_legacy_specular else node_final.inputs['Base Color'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
-                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_final.inputs['Specular IOR Level'], node_final.inputs['Specular Tint']], textures.MaterialLayers.SPECULAR_MASK),
+                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_final.inputs['Specular Tint']], textures.MaterialLayers.SPECULAR_MASK),
                 2: ([node_calc_spec.inputs['B']] if has_legacy_specular else [], textures.MaterialLayers.SPECULAR_REFLECTION),
                 3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION_MASK),
                 4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
@@ -235,11 +239,11 @@ class WhmLoader:
                 node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
                 node_image = loaded_textures.get(texture_name)
                 if node_image is None:
-                    self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label} texture ("{texture_name}")'))
+                    self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label.value} texture ("{texture_name}")'))
                     continue
                 props.setup_property(node_tex, 'image_path', node_image.get('source_rtx', ""))
                 node_tex.image = node_image
-                node_tex.location = -430, 400 - 320 * len(created_tex_nodes)
+                node_tex.location = -430, node_final.location[1] - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
                 created_tex_nodes[texture_name] = node_tex
             if channel_idx == 2:
@@ -261,6 +265,15 @@ class WhmLoader:
             if channel_idx != 4:
                 for i in inputs:
                     links.new(node_tex.outputs[0], i)
+            if channel_idx == 1 and not has_legacy_specular:
+                correct_spec = mat.node_tree.nodes.new('ShaderNodeGamma')
+                correct_spec.inputs['Gamma'].default_value = 0.4545
+                correct_spec.location = -150, node_tex.location[1] + 200
+                links.new(node_tex.outputs[0], correct_spec.inputs['Color'])
+                links.new(correct_spec.outputs[0], node_final.inputs['Metallic'])
+
+        if has_legacy_specular:
+            links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
 
         self.created_materials[material_path] = mat
         if self.wtp_load_enabled:
@@ -429,8 +442,8 @@ class WhmLoader:
                 if node.label == 'Apply spec':
                     links.new(aply_teamcolor.outputs[0], node.inputs['A'])
                     break
-                else:
-                    links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
+            else:
+                links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
             links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
         else:
             self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
@@ -1247,7 +1260,8 @@ class WhmLoader:
         internal_textures = {}
         for current_chunk, pos in chunk_positions.get('FOLDSTXT', []):  # FOLDSTXT - Reference to an external rtx
             image = internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
-            image["source_rtx"] = current_chunk.name
+            if image is not None:
+                image["source_rtx"] = current_chunk.name
         for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
             reader.stream.seek(pos)
             internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
