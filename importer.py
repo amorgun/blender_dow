@@ -207,8 +207,14 @@ class WhmLoader:
             node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
             node_calc_spec.data_type = 'RGBA'
             node_calc_spec.clamp_result = True
-            node_calc_spec.inputs[0].default_value = 0
-            node_calc_spec.blend_type = 'MIX'
+            if has_legacy_specular:
+                node_calc_spec.inputs['Factor'].default_value = 0
+                node_calc_spec.blend_type = 'MIX'
+            else:
+                node_calc_spec.inputs['Factor'].default_value = 0.5
+                node_calc_spec.blend_type = 'ADD'
+                node_calc_spec.inputs['A'].default_value = 1, 1, 1, 1
+                node_calc_spec.inputs['B'].default_value = 0, 0, 0, 1
             node_calc_spec.label = 'Apply spec'
             node_calc_spec.location = node_final.location[0] - 300, node_final.location[1]
 
@@ -227,7 +233,7 @@ class WhmLoader:
             channel_idx = channel['idx']
             inputs, node_label = {
                 0: ([node_calc_spec.inputs['A'] if has_specular else node_final.inputs['Base Color'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
-                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_calc_spec.inputs['Factor'], node_calc_spec.inputs['B'], node_final.inputs['Specular Tint']], textures.MaterialLayers.SPECULAR_MASK),
+                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_calc_spec.inputs['B'], node_final.inputs['Specular Tint']] if has_specular else [], textures.MaterialLayers.SPECULAR_MASK),
                 2: ([node_calc_spec.inputs['B']] if has_legacy_specular else [], textures.MaterialLayers.SPECULAR_REFLECTION),
                 3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION_MASK),
                 4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
@@ -270,7 +276,7 @@ class WhmLoader:
             if channel_idx == 1 and not has_legacy_specular:
                 correct_spec = mat.node_tree.nodes.new('ShaderNodeGamma')
                 correct_spec.inputs['Gamma'].default_value = 0.4545
-                correct_spec.location = -150, node_tex.location[1] + 700
+                correct_spec.location = -150, node_tex.location[1] - 200
                 links.new(node_tex.outputs[0], correct_spec.inputs['Color'])
                 links.new(correct_spec.outputs[0], node_final.inputs['Metallic'])
 
