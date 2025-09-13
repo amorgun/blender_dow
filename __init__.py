@@ -372,7 +372,6 @@ class ExportModel:
         default='rsh',
     )
 
-
     max_texture_size: bpy.props.IntProperty(
         name='Max texture size',
         description='Resize exported textures to the given max size.',
@@ -387,7 +386,7 @@ class ExportModel:
     teamcolored_rtx_suffix: bpy.props.StringProperty(
         default='_default_0',
         name='Teamcolored rtx suffix',
-        description='The suffix for exported rtx files with teamcolor baked in',
+        description='The suffix used for exported rtx files with teamcolor baked in. Leave it empty to disable this feature',
     )
 
     data_location: bpy.props.EnumProperty(
@@ -465,6 +464,7 @@ class ExportModel:
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
                                    material_export_format=self.texture_format,
+                                   export_teamcolored_rtx=self.teamcolored_rtx_suffix != '',
                                    teamcolored_rtx_suffix=self.teamcolored_rtx_suffix,
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
@@ -524,6 +524,7 @@ class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
     )
 
     texture_format: bpy.props.StringProperty(default=exporter.MaterialExportFormat.RSH, options={'HIDDEN'})
+    teamcolored_rtx_suffix: bpy.props.StringProperty(default='', options={'HIDDEN'})
 
     FORMAT = exporter.ExportFormat.SGM
 
