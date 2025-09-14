@@ -404,7 +404,7 @@ class Exporter:
             else:
                 image_suffixes = {
                     textures.MaterialLayers.DIFFUSE: '',
-                    textures.MaterialLayers.OPACITY: '_default_opacity',
+                    textures.MaterialLayers.OPACITY: '_default_alpha',
                     textures.MaterialLayers.SPECULAR_MASK: '_default_spc',
                     textures.MaterialLayers.SPECULAR_REFLECTION: '_default_reflect',
                     textures.MaterialLayers.SELF_ILLUMUNATION_MASK: '_default_emi',
@@ -596,38 +596,33 @@ class Exporter:
             textures.MaterialLayers.SELF_ILLUMUNATION_MASK: '_self_illum',
             textures.MaterialLayers.OPACITY: '_alpha',
         }
-        with tempfile.TemporaryDirectory() as t:
-            temp_dir = pathlib.Path(t)
-            for key, path_suffix in known_keys.items():
-                image = images.get(key)
-                if not image:
-                    continue
-                texture_declared_path = f'{declared_path}{path_suffix}'  # used for locating .wtp
-                texture_declared_paths[key] = texture_declared_path
+        for key, path_suffix in known_keys.items():
+            image = images.get(key)
+            if not image:
+                continue
+            texture_declared_path = f'{declared_path}{path_suffix}'  # used for locating .wtp
+            texture_declared_paths[key] = texture_declared_path
 
-                pil_image = textures.img2pil(image)
-                if pil_image is None:
-                    self.messages.append(('WARNING', f'Error while converting {image.name}'))
-                    return False
+            pil_image = textures.img2pil(image)
+            if pil_image is None:
+                self.messages.append(('WARNING', f'Error while converting {image.name}'))
+                return False
 
-                pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
-                tmp_dds_path = temp_dir / key
-                textures.encode_dds(pil_image, tmp_dds_path)
-                texture_stream = tmp_dds_path.open('rb')
-                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+            pil_image.thumbnail((self.max_texture_size, self.max_texture_size))
+            width, height, num_mips, image_format, image_type, texture_stream = textures.encode_dds(pil_image)
 
-                with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
-                    with writer.start_chunk('DATAHEAD'):
-                        writer.write_struct('<2l', image_type, 1)  # num_images
-                    if self.make_oe_compatable_textures:
-                        with writer.start_chunk('DATAINFO'):
-                            writer.write_struct('<4l', image_type, width, height, 1)  # num_images
-                    with writer.start_chunk('FOLDIMAG'):
-                        with writer.start_chunk('DATAATTR'):
-                            writer.write_struct('<4l', image_format, width, height, num_mips)
-                        with writer.start_chunk('DATADATA'):
-                            with texture_stream:
-                                shutil.copyfileobj(texture_stream, writer)
+            with writer.start_chunk('FOLDTXTR', name=str(texture_declared_path)):
+                with writer.start_chunk('DATAHEAD'):
+                    writer.write_struct('<2l', image_type, 1)  # num_images
+                if self.make_oe_compatable_textures:
+                    with writer.start_chunk('DATAINFO'):
+                        writer.write_struct('<4l', image_type, width, height, 1)  # num_images
+                with writer.start_chunk('FOLDIMAG'):
+                    with writer.start_chunk('DATAATTR'):
+                        writer.write_struct('<4l', image_format, width, height, num_mips)
+                    with writer.start_chunk('DATADATA'):
+                        with texture_stream:
+                            shutil.copyfileobj(texture_stream, writer)
             with writer.start_chunk('FOLDSHDR', name=mat_name):
                 has_extra_layers = any(images.get(k) is not None for k in known_keys if k != 'diffuse')
                 with writer.start_chunk('DATAINFO'):
@@ -776,10 +771,7 @@ class Exporter:
                     }
                 })
                 result.thumbnail((self.max_texture_size, self.max_texture_size))
-                tmp_dds_path = temp_dir / 'exported.rtx'
-                textures.encode_dds(result, tmp_dds_path, force_type=force_type)
-                texture_stream = tmp_dds_path.open('rb')
-                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+                width, height, num_mips, image_format, image_type, texture_stream = textures.encode_dds(result, force_type=force_type)
                 self.write_relic_chunky(writer)
                 with writer.start_chunk('FOLDTXTR', name=mat_name):
                     with writer.start_chunk('DATAHEAD'):
@@ -799,7 +791,7 @@ class Exporter:
 
 
     def do_export_teamcolored_rtx(self, teamcolor_images: dict, teamcolor_colors: dict, badge_info: dict, banner_info: dict, dst_path: pathlib.Path, mat_name: str) -> bool:
-        from PIL import ImageChops, ImageOps
+        from PIL import ImageChops
 
         base_image = teamcolor_images.get(textures.TeamcolorLayers.DEFAULT)
         if base_image is None:
@@ -863,10 +855,7 @@ class Exporter:
                     }
                 })
                 result.thumbnail((self.max_texture_size, self.max_texture_size))
-                tmp_dds_path = temp_dir / 'exported.rtx'
-                textures.encode_dds(result, tmp_dds_path)
-                texture_stream = tmp_dds_path.open('rb')
-                is_dds, width, height, declared_data_size, num_mips, image_format, image_type = textures.read_dds_header(texture_stream)
+                width, height, num_mips, image_format, image_type, texture_stream = textures.encode_dds(result)
                 self.write_relic_chunky(writer)
                 with writer.start_chunk('FOLDTXTR', name=mat_name):
                     with writer.start_chunk('DATAHEAD'):

@@ -51,11 +51,12 @@ def img2pil(bpy_image) -> PilImage:
     return PilImage.open(texture_stream)
 
 
-def encode_dds(pil_image: PilImage, path: str, force_type: DdsType = None):
+def encode_dds(pil_image: PilImage, force_type: DdsType = None):
     import quicktex.dds
     import quicktex.s3tc.bc1
     import quicktex.s3tc.bc3
 
+    result = io.BytesIO()
     level = 10
     color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
     mode = color_mode.ThreeColor
@@ -68,9 +69,18 @@ def encode_dds(pil_image: PilImage, path: str, force_type: DdsType = None):
         has_alpha = any([a > 0 for a in alpha_hist[:-1]])
         # TODO test for 1-bit alpha
     if force_type is DdsType.DXT1 or (not force_type and not has_alpha):
-        quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1').save(path)
+        dds = quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1')
+        image_type = 5
+        image_format = 8
     else:
-        quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5').save(path)
+        dds = quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5')
+        image_type = 7
+        image_format = 11
+    for texture in dds.textures:
+        result.write(texture)
+    result.flush()
+    result.seek(0)
+    return dds.size[0], dds.size[1], dds.mipmap_count, image_format, image_type, result
 
 # if (imageType == 5) return FileFormats.ImgType.DXT1DDS;
 # if (imageType == 6) return FileFormats.ImgType.DXT3DDS;
