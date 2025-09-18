@@ -1276,7 +1276,8 @@ class WhmLoader:
         for current_chunk, pos in chunk_positions.get('FOLDSHDR', []):  # FOLDSHDR - Internal Material
             reader.stream.seek(pos)
             mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
-            props.setup_property(mat, 'internal', True)
+            if not chunk_positions.get('FOLDSTXT', []):
+                props.setup_property(mat, 'internal', True)
 
     def load(self, reader: ChunkReader):
         self._reset()
