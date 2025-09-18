@@ -1464,7 +1464,7 @@ class Exporter:
                             continue
                         for group in ['uv_offset', 'uv_tiling']:
                             fcurves = exported_tex_fcurves[group, mat.name]
-                            mat_path = self.get_material_path(mat)
+                            mat_path = self.exported_materials[mat.name]
                             for fcurve in fcurves:
                                 if self.format is ExportFormat.WHM:
                                     writer.write_str(mat_path)
