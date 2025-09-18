@@ -41,7 +41,10 @@ def img2pil(bpy_image) -> PilImage:
         texture_data = bpy_image.packed_file.data
     else:
         packed_image = bpy_image.copy()
-        packed_image.pack()
+        try:
+            packed_image.pack()
+        except RuntimeError:
+            return None
         if packed_image.packed_file is None:
             return None
         texture_data = packed_image.packed_file.data
