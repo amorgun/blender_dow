@@ -464,7 +464,7 @@ class Exporter:
                             colour_mask = {
                                 textures.MaterialLayers.DIFFUSE: [255] * 4 if has_data else [0, 0, 0, 255],
                                 textures.MaterialLayers.OPACITY: [255] * 4,
-                                textures.MaterialLayers.SPECULAR_MASK: [int(255 * metallic)] * 4,
+                                textures.MaterialLayers.SPECULAR_MASK: [int(255 * metallic)] * 3 + [255],
                                 textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: [255] * 4,
                             }.get(key, [0, 0, 0, 255])
                             writer.write_struct('<2l4B', channel_idx, int(has_data), *colour_mask)
