@@ -186,6 +186,8 @@ class WhmLoader:
         if roughness_data > 1:
             node_final.inputs['Metallic'].default_value = 1
             node_final.inputs['Roughness'].default_value = 1 / (math.log2(roughness_data) + 1)
+        else:
+            node_final.inputs['Metallic'].default_value = 0
         node_final.inputs['Specular IOR Level'].default_value = 0
         node_final.location = 150, 400
         mat.node_tree.nodes[1].location = node_final.location[0] + 400, node_final.location[1]
@@ -1273,10 +1275,11 @@ class WhmLoader:
         for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
             reader.stream.seek(pos)
             internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
+        is_de_material = bool(chunk_positions.get('FOLDSTXT', []))
         for current_chunk, pos in chunk_positions.get('FOLDSHDR', []):  # FOLDSHDR - Internal Material
             reader.stream.seek(pos)
             mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
-            if not chunk_positions.get('FOLDSTXT', []):
+            if not is_de_material:
                 props.setup_property(mat, 'internal', True)
 
     def load(self, reader: ChunkReader):

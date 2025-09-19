@@ -438,15 +438,17 @@ class Exporter:
                 material_images.setdefault(textures.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(textures.MaterialLayers.SELF_ILLUMUNATION_MASK, ''))
                 self.exported_materials[mat.name] = mat_name
                 roughness = 0
+                metallic = 0
                 for node in mat.node_tree.nodes:
                     if node.bl_idname == 'ShaderNodeBsdfPrincipled':
                         roughness = node.inputs['Roughness'].default_value
+                        metallic = node.inputs['Metallic'].default_value
                         break
                 with writer.start_chunk('FOLDSHDR', name=mat_name):
                     with writer.start_chunk('DATAINFO'):
                         roughness_val = 10
                         if roughness != 0:
-                            roughness_val = 2 ** (max(0.1, min(10, 1 / roughness - 1)))
+                            roughness_val = 2 ** (max(0.1, min(10, round(1 / roughness, 2) - 1)))
                         writer.write_struct('<2LfLx', 6, 7, roughness_val, 1)
                     for channel_idx, key in enumerate([
                         textures.MaterialLayers.DIFFUSE,
@@ -460,8 +462,9 @@ class Exporter:
                         with writer.start_chunk('DATACHAN'):
                             has_data = material_images.get(key) is not None
                             colour_mask = {
-                                textures.MaterialLayers.DIFFUSE: [255] * 4,
+                                textures.MaterialLayers.DIFFUSE: [255] * 4 if has_data else [0, 0, 0, 255],
                                 textures.MaterialLayers.OPACITY: [255] * 4,
+                                textures.MaterialLayers.SPECULAR_MASK: [int(255 * metallic)] * 4,
                                 textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: [255] * 4,
                             }.get(key, [0, 0, 0, 255])
                             writer.write_struct('<2l4B', channel_idx, int(has_data), *colour_mask)
