@@ -1469,6 +1469,8 @@ class Exporter:
                             fcurves = exported_tex_fcurves[group, mat.name]
                             mat_path = self.exported_materials[mat.name]
                             for fcurve in fcurves:
+                                if fcurve.array_index not in (0, 1):
+                                    continue
                                 if self.format is ExportFormat.WHM:
                                     writer.write_str(mat_path)
                                 with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mat_path):
