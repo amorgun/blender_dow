@@ -1352,7 +1352,7 @@ class Exporter:
                     with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
                         writer.write_struct('<l', int(frame_end) + 1)
                         writer.write_struct('<f', (frame_end + 1) / action.get('fps', 30))
-                    bones = [self.armature_obj.pose.bones[b.name] for b in self.exported_bones]
+                    bones = [self.armature_obj.pose.bones[b.name] for b in self.exported_bones or []]
                     bones = sorted(bones, key=lambda x: self.bone_to_idx[x.name])
                     if self.format is ExportFormat.WHM:
                         writer.write_struct('<l', len(bones))
@@ -1424,7 +1424,10 @@ class Exporter:
 
                     mesh_fcurves = prop_fcurves['visibility'].keys() | prop_fcurves['force_invisible'].keys()
                     exported_tex_fcurves = {
-                        (g, mat_name): get_prop_fcurves(g, mat_name)
+                        (g, mat_name): [
+                            f for f in get_prop_fcurves(g, mat_name)
+                            if f.array_index in (0, 1)
+                        ]
                         for mat_name in self.exported_materials
                         for g in ['uv_offset', 'uv_tiling']
                     }
@@ -1469,8 +1472,6 @@ class Exporter:
                             fcurves = exported_tex_fcurves[group, mat.name]
                             mat_path = self.exported_materials[mat.name]
                             for fcurve in fcurves:
-                                if fcurve.array_index not in (0, 1):
-                                    continue
                                 if self.format is ExportFormat.WHM:
                                     writer.write_str(mat_path)
                                 with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mat_path):

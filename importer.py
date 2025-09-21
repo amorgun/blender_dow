@@ -884,7 +884,13 @@ class WhmLoader:
                 material = self.created_materials.get(obj_name)
                 if material is not None:
                     mapping_node = material.node_tree.nodes['Mapping']
-                    create_animation_data(material.node_tree, animation.slots.new(id_type='NODETREE', name=material.name))
+                    expected_id = 'NT' + material.name
+                    for slot in animation.slots:
+                        if slot.identifier == expected_id:
+                            break
+                    else:
+                        slot = animation.slots.new(id_type='NODETREE', name=material.name)
+                    create_animation_data(material.node_tree, slot)
                 else:
                     self.messages.append(('WARNING', f'Cannot find loaded material "{obj_name}"'))
                 for j in range(keys_tex):  # -- Read Texture Keys
@@ -895,18 +901,16 @@ class WhmLoader:
                     match tex_anim_type:
                         case 1:
                             mapping_node.inputs[1].default_value[0] = key_tex
-                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[1].default_value', frame=frame, index=0)
+                            mapping_node.inputs[1].keyframe_insert(data_path='default_value', frame=frame, index=0)
                         case 2:
                             mapping_node.inputs[1].default_value[1] = -key_tex
-                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[1].default_value', frame=frame, index=1)
+                            mapping_node.inputs[1].keyframe_insert(data_path='default_value', frame=frame, index=1)
                         case 3:
-                            self.messages.append(('INFO', 'TEST UV_TILING 1'))
                             mapping_node.inputs[3].default_value[0] = -key_tex
-                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[3].default_value', frame=frame, index=0)
+                            mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=0)
                         case 4:
-                            self.messages.append(('INFO', 'TEST UV_TILING 2'))
                             mapping_node.inputs[3].default_value[1] = -key_tex
-                            material.node_tree.keyframe_insert(data_path='nodes["Mapping"].inputs[3].default_value', frame=frame, index=1)
+                            mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=1)
         # ---< CAMERA >---
 
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
