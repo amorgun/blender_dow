@@ -289,11 +289,11 @@ class WhmLoader:
                 if not teamcolor_data:
                     self.messages.append(('DEBUG', f'Cannot find {teamcolor_path}'))
                 else:
-                    self.load_wtp(open_reader(teamcolor_data), material_path, mat)
+                    self.load_wtp(open_reader(teamcolor_data), material_path, mat, uv_vector)
                 break
         return mat
 
-    def load_wtp(self, reader: ChunkReader, material_path: str, material):
+    def load_wtp(self, reader: ChunkReader, material_path: str, material, uv_vector):
         reader.skip_relic_chunky()
         current_chunk = reader.read_header('FOLDTPAT')
         loaded_textures = {}
@@ -352,7 +352,6 @@ class WhmLoader:
         aply_teamcolor = material.node_tree.nodes.new('ShaderNodeGroup')
         aply_teamcolor.node_tree = self.create_teamcolor_group()
         aply_teamcolor.location = common_node_pos_x + 600, common_node_pos_y - 600
-        uf_offset_node = utils.get_uv_offset_node(material)
         created_tex_nodes = {}
         for layer_name in layer_names.values():
             node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
@@ -365,7 +364,7 @@ class WhmLoader:
                 node_tex.image = self.default_image
             node_tex.location = node_pos_x + 200, node_pos_y
             node_tex.label = f'color_layer_{layer_name.value}'
-            links.new(uf_offset_node.outputs[0], node_tex.inputs['Vector'])
+            links.new(uv_vector, node_tex.inputs['Vector'])
             links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name.value}_{"value" if layer_name != textures.TeamcolorLayers.DEFAULT else "color"}'])
 
         img_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
@@ -379,7 +378,7 @@ class WhmLoader:
         flip_texture_node.location = common_node_pos_x - 450, common_node_pos_y - 290 * len(created_tex_nodes) + 200
         flip_texture_node.inputs['Location'].default_value = (0, 1, 0)
         flip_texture_node.inputs['Scale'].default_value = (1, -1, 1)
-        links.new(uf_offset_node.outputs[0], flip_texture_node.inputs['Vector'])
+        links.new(uv_vector, flip_texture_node.inputs['Vector'])
 
         for layer_name, layer_data in [
             ('badge', badge_data),
