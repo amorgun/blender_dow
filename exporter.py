@@ -897,26 +897,27 @@ class Exporter:
         all_armatures = [a for a in bpy.data.objects if a.type == 'ARMATURE' if a.data.bones]
         if not all_armatures:
             self.messages.append(('WARNING', f'Cannot find an armature.'))
-            return
-        self.armature_obj = all_armatures[0]
-        armature = self.armature_obj.data
-        if len(all_armatures) > 1:
-            self.messages.append(('WARNING', f'Found multiple armatures. Will export only the first one ({armature.name})'))
-        bone_tree = {}
+            bones = []
+        else:
+            self.armature_obj = all_armatures[0]
+            armature = self.armature_obj.data
+            if len(all_armatures) > 1:
+                self.messages.append(('WARNING', f'Found multiple armatures. Will export only the first one ({armature.name})'))
+            bone_tree = {}
 
-        def insert_bone(bone):
-            if bone.parent:
-                data = insert_bone(bone.parent)
-            else:
-                data = bone_tree
-            return data.setdefault(bone, {})
-        
-        bones = [b for b in armature.bones if not (self.is_marker(b, armature) or self.is_camera(b))]
-        self.exported_bones = bones
-        if not self.exported_bones:
-            return
-        for bone in bones:
-            insert_bone(bone)
+            def insert_bone(bone):
+                if bone.parent:
+                    data = insert_bone(bone.parent)
+                else:
+                    data = bone_tree
+                return data.setdefault(bone, {})
+
+            bones = [b for b in armature.bones if not (self.is_marker(b, armature) or self.is_camera(b))]
+            self.exported_bones = bones
+            if not self.exported_bones:
+                return
+            for bone in bones:
+                insert_bone(bone)
 
         def iter_bones(data, lvl):
             for bone, child in data.items():
@@ -928,6 +929,8 @@ class Exporter:
             self.start_chunk(writer, ExportFormat.SGM, 'FOLDSKEL'):
             with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
                 writer.write_struct('<l', len(bones))
+            if not bones:
+                return
             delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
             for bone_idx, (bone, level) in enumerate(iter_bones(bone_tree, -1)):
                 with self.start_chunk(writer, ExportFormat.SGM, 'DATABONE', name=bone.name):
@@ -1477,16 +1480,16 @@ class Exporter:
                                 with self.start_chunk(writer, ExportFormat.SGM, 'DATACANM', name=mat_path):
                                     writer.write_struct('<l', 0)  # mode
                                     writer.write_struct('<4x')
-                                    tex_anim_type, mult = {
-                                        ('uv_offset', 0): (1, 1),
-                                        ('uv_offset', 1): (2, -1),
-                                        ('uv_tiling', 0): (3, -1),
-                                        ('uv_tiling', 1): (4, -1),
+                                    tex_anim_type, mult, add = {
+                                        ('uv_offset', 0): (1, 1, 0),
+                                        ('uv_offset', 1): (2, -1, 0),
+                                        ('uv_tiling', 0): (3, 1, -1),
+                                        ('uv_tiling', 1): (4, 1, -1),
                                     }[group, fcurve.array_index]
                                     writer.write_struct('<2l', tex_anim_type, len(fcurve.keyframe_points))
                                     for point in fcurve.keyframe_points:
                                         frame, val = point.co
-                                        writer.write_struct('<2f', frame / max(frame_end, 1), val * mult)
+                                        writer.write_struct('<2f', frame / max(frame_end, 1), val * mult + add)
                     if self.format is ExportFormat.WHM:
                         writer.write_struct('<l', len(animated_cameras))
                         coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 0, 1], [0, -1, 0]]).to_4x4()

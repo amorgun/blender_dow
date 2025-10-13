@@ -45,17 +45,10 @@ class DOW_OT_setup_uv_mapping(bpy.types.Operator):
         mat = context.mat
         mat.use_nodes = True
         links = mat.node_tree.links
-        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
-        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
-        node_uv.location = -800, 200
-        node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
-        node_uv_offset.label = 'UV offset'
-        node_uv_offset.name = 'Mapping'
-        links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
+        uv_vector = utils.setup_uv_offset(mat, -1600, 200)
         for node_tex in mat.node_tree.nodes:
             if node_tex.bl_idname == 'ShaderNodeTexImage' and not node_tex.inputs['Vector'].links:
-                links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
-
+                links.new(uv_vector, node_tex.inputs['Vector'])
         return {'FINISHED'}
 
 
@@ -858,7 +851,7 @@ class DowMaterialTools(bpy.types.Panel):
         if remote_prop_owner is None:
             node = None
             if mat.node_tree is not None:
-                node = mat.node_tree.nodes.get('Mapping')
+                node = utils.get_uv_offset_node(mat)
                 for shader_node in mat.node_tree.nodes:
                     if shader_node.bl_idname == 'ShaderNodeBsdfPrincipled':
                         layout.row().prop(shader_node.inputs['Metallic'], 'default_value', text='Default Reflections')

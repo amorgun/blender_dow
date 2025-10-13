@@ -137,3 +137,36 @@ def ensure_channelbag_exists(action, slot):
         strip = layer.strips.new(type='KEYFRAME')
 
     return strip.channelbag(slot, ensure=True)
+
+
+def setup_uv_offset(mat, location_x, location_y):
+    links = mat.node_tree.links
+    node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
+    node_uv.location = location_x, location_y
+
+    node_uv_offset_pre = mat.node_tree.nodes.new('ShaderNodeMapping')
+    node_uv_offset_pre.inputs[1].default_value = -0.5, -0.5, 0
+    node_uv_offset_pre.location = location_x + 200, location_y
+    links.new(node_uv.outputs[2], node_uv_offset_pre.inputs['Vector'])
+
+    node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
+    node_uv_offset.label = 'UV offset'
+    node_uv_offset.name = 'Mapping'
+    node_uv_offset.location = location_x + 400, location_y
+    links.new(node_uv_offset_pre.outputs[0], node_uv_offset.inputs['Vector'])
+
+    node_uv_offset_post = mat.node_tree.nodes.new('ShaderNodeMapping')
+    node_uv_offset_post.inputs[1].default_value = 0.5, 0.5, 0
+    node_uv_offset_post.location = location_x + 600, location_y
+    links.new(node_uv_offset.outputs[0], node_uv_offset_post.inputs['Vector'])
+
+    return node_uv_offset_post.outputs[0]
+
+
+def get_uv_offset_node(material):
+    candidates = [
+        node for node in material.node_tree.nodes
+        if node.bl_idname == 'ShaderNodeMapping'
+        and node.label == 'UV offset'
+    ]
+    return candidates[0] if candidates else None

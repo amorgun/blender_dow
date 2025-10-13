@@ -192,16 +192,10 @@ class WhmLoader:
         node_final.location = 150, 400
         mat.node_tree.nodes[1].location = node_final.location[0] + 400, node_final.location[1]
 
-        node_uv = mat.node_tree.nodes.new('ShaderNodeTexCoord')
-        node_uv.location = node_final.location[1] - 1250, node_final.location[1] - 200
-        node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
-        node_uv_offset.label = 'UV offset'
-        node_uv_offset.name = 'Mapping'
-        node_uv_offset.location = node_final.location[0] - 759, node_final.location[1] - 200
-        links.new(node_uv.outputs[2], node_uv_offset.inputs['Vector'])
+        uv_vector = utils.setup_uv_offset(mat, node_final.location[1] - 1600, node_final.location[1] - 200)
 
         node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
-        node_object_info.location = node_uv_offset.location[0], node_final.location[1]
+        node_object_info.location = node_final.location[1] - 1600, node_final.location[1]
 
         has_legacy_specular = any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
         has_specular = any(c['idx'] == 1 and c['texture_name'] != '' for c in channels)
@@ -269,7 +263,7 @@ class WhmLoader:
                 links.new(node_global_to_camera.outputs[0], node_fix_reflect.inputs['Vector'])
                 links.new(node_fix_reflect.outputs[0], node_tex.inputs['Vector'])
             else:
-                links.new(node_uv_offset.outputs[0], node_tex.inputs['Vector'])
+                links.new(uv_vector, node_tex.inputs['Vector'])
             if channel_idx in (0, 4):
                 links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
             if channel_idx != 4:
@@ -358,11 +352,7 @@ class WhmLoader:
         aply_teamcolor = material.node_tree.nodes.new('ShaderNodeGroup')
         aply_teamcolor.node_tree = self.create_teamcolor_group()
         aply_teamcolor.location = common_node_pos_x + 600, common_node_pos_y - 600
-        uf_offset_node = [
-            node for node in material.node_tree.nodes
-            if node.bl_idname == 'ShaderNodeMapping'
-            and node.label == 'UV offset'
-        ][0]
+        uf_offset_node = utils.get_uv_offset_node(material)
         created_tex_nodes = {}
         for layer_name in layer_names.values():
             node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
@@ -883,7 +873,7 @@ class WhmLoader:
                 keys_tex = reader.read_one('<l')  # -- Read Number Of Texture Keys
                 material = self.created_materials.get(obj_name)
                 if material is not None:
-                    mapping_node = material.node_tree.nodes['Mapping']
+                    mapping_node = utils.get_uv_offset_node(material)
                     expected_id = 'NT' + material.name
                     for slot in animation.slots:
                         if slot.identifier == expected_id:
@@ -906,10 +896,10 @@ class WhmLoader:
                             mapping_node.inputs[1].default_value[1] = -key_tex
                             mapping_node.inputs[1].keyframe_insert(data_path='default_value', frame=frame, index=1)
                         case 3:
-                            mapping_node.inputs[3].default_value[0] = -key_tex
+                            mapping_node.inputs[3].default_value[0] = key_tex + 1
                             mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=0)
                         case 4:
-                            mapping_node.inputs[3].default_value[1] = -key_tex
+                            mapping_node.inputs[3].default_value[1] = key_tex + 1
                             mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=1)
         # ---< CAMERA >---
 
