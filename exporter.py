@@ -969,6 +969,8 @@ class Exporter:
                     if obj_orig not in shadow_mesh_objs:
                         self.messages.append(('WARNING', f'Skipping mesh {obj.name} because it has no materials'))
                     continue
+                if len(mesh.vertices) == 0:
+                    continue
 
                 self.exported_meshes.append(obj.name)
                 orig_num_vertices += len(mesh.vertices)
