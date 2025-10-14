@@ -845,7 +845,14 @@ class DowMaterialTools(bpy.types.Panel):
         mat = context.material
         if context.active_node is not None and hasattr(context.active_node, 'dow_image_label'):
             layout.row().prop(context.active_node, 'dow_image_label', text='Layer')
-            layout.row().prop(context.active_node, '["image_path"]', text="Single Image Path")
+            try:
+                textures.MaterialLayers(context.active_node.dow_image_label.lower())
+                if context.active_node.image is None:
+                    layout.row().label(text='No image selected')
+                else:
+                    layout.row().prop(context.active_node.image, 'dow_export_path', text="Single Image Path")
+            except ValueError:
+                pass
             layout.separator()
         remote_prop_owner = props.get_material_prop_owner(mat)
         if remote_prop_owner is None:

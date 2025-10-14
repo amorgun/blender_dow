@@ -579,6 +579,11 @@ def register():
         name='shadow',
         description='Shape used to cast shadows',
     )
+    bpy.types.Image.dow_export_path = bpy.props.StringProperty(
+        default='',
+        name='Image Export Path',
+        description='Path to where the game will look for this image',
+    )
     bpy.utils.register_class(DOW_FH_whm_import)
     operators.register()
 
@@ -586,6 +591,7 @@ def register():
 def unregister():
     operators.unregister()
     bpy.utils.unregister_class(DOW_FH_whm_import)
+    del bpy.types.Image.dow_export_path
     del bpy.types.Object.dow_shadow_mesh
     del bpy.types.Scene.dow_export_filename
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)

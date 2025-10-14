@@ -411,13 +411,16 @@ class Exporter:
                     textures.MaterialLayers.SELF_ILLUMUNATION_COLOR: '_default_emi_color',
                 }
                 material_images = {}
-                mat_path = exported_nodes.get(textures.MaterialLayers.DIFFUSE, {}).get('image_path', '').strip() or mat_path
+                if textures.MaterialLayers.DIFFUSE in exported_nodes:
+                    img = exported_nodes[textures.MaterialLayers.DIFFUSE].image
+                    if img is not None:
+                        mat_path = img.dow_export_path.strip() or mat_path
                 mat_name = pathlib.Path(mat_path).name
                 for layer, image_node in exported_nodes.items():
                     if image_node is None or image_node.image is None:
                         continue
                     image = image_node.image
-                    img_path = image_node.get('image_path', '').strip() or f'{mat_path}{image_suffixes[layer]}'
+                    img_path = image.dow_export_path.strip() or f'{mat_path}{image_suffixes[layer]}'
                     rtx_path = self.paths.get_path(f'{img_path}.rtx')
                     if img_path in self.exported_images:
                         material_images[layer] = img_path

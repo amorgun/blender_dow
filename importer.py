@@ -245,7 +245,6 @@ class WhmLoader:
                 if node_image is None:
                     self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label.value} texture ("{texture_name}")'))
                     continue
-                props.setup_property(node_tex, 'image_path', node_image.get('source_rtx', ""))
                 node_tex.image = node_image
                 node_tex.location = -430, node_final.location[1] - 320 * len(created_tex_nodes)
                 node_tex.label = node_label
@@ -1264,7 +1263,7 @@ class WhmLoader:
         for current_chunk, pos in chunk_positions.get('FOLDSTXT', []):  # FOLDSTXT - Reference to an external rtx
             image = internal_textures[current_chunk.name] = self.CH_FOLDSTXT(current_chunk.name)
             if image is not None:
-                image["source_rtx"] = current_chunk.name
+                image.dow_export_path = current_chunk.name
         for current_chunk, pos in chunk_positions.get('FOLDTXTR', []):  # FOLDTXTR - Internal Texture
             reader.stream.seek(pos)
             internal_textures[current_chunk.name] = self.CH_FOLDTXTR(reader, current_chunk.name)
