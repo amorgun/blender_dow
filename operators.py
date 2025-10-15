@@ -606,6 +606,28 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
         row.operator(DOW_OT_select_all_actions.bl_idname, text='Select All').status=True
 
 
+class DOW_OT_make_material_animated(bpy.types.Operator):
+    """Make material animated"""
+
+    bl_idname = 'object.dow_make_animated_material'
+    bl_label = 'Make animated'
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.material is not None
+            and context.material.node_tree is not None
+            and context.current_action is not None
+        )
+
+    def execute(self, context):
+        node_tree = context.material.node_tree
+        if node_tree.animation_data is None:
+            node_tree.animation_data_create()
+        node_tree.animation_data.action = context.current_action
+        return {'FINISHED'}
+
 
 def get_animation_data(obj):
     if obj.animation_data is not None:
@@ -891,6 +913,34 @@ class DowMaterialTools(bpy.types.Panel):
             'internal',
         ]:
             make_prop_row(layout, mat, prop)
+        if (
+            mat.node_tree is not None
+            and mat.node_tree.animation_data is None
+        ):
+            if context.active_object is not None:
+                obj = context.active_object
+                current_actions = []
+                if obj.type == 'MESH':
+                    for m in obj.modifiers:
+                        if m.type == 'ARMATURE':
+                            if m.object is not None and m.object.animation_data is not None:
+                                try:
+                                    current_actions.append(m.object.animation_data.action)
+                                    break
+                                except AttributeError:
+                                    pass
+                    try:
+                        current_actions.append(obj.parent.animation_data.action)
+                    except AttributeError:
+                        pass
+                try:
+                    current_actions.append(obj.animation_data.action)
+                except AttributeError:
+                    pass
+            if current_actions:
+                row = layout.row()
+                row.context_pointer_set(name='current_action', data=current_actions[0])
+                row.operator(DOW_OT_make_material_animated.bl_idname)
 
 
 IMAGE_LAYERS = [
@@ -1051,6 +1101,7 @@ def register():
     bpy.utils.register_class(ActionSettings)
     bpy.utils.register_class(DOW_OT_batch_configure_invisible)
     bpy.utils.register_class(DOW_OT_batch_bake_actions)
+    bpy.utils.register_class(DOW_OT_make_material_animated)
     for t in [
         bpy.types.Object,
         bpy.types.Material,
@@ -1133,6 +1184,7 @@ def unregister():
         bpy.types.PoseBone,
     ]:
         del t.dow_name
+    bpy.utils.unregister_class(DOW_OT_make_material_animated)
     bpy.utils.unregister_class(DOW_OT_batch_bake_actions)
     bpy.utils.unregister_class(DOW_OT_batch_configure_invisible)
     bpy.utils.unregister_class(ActionSettings)
