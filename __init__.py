@@ -18,6 +18,11 @@ class LastCallArgsGroup(bpy.types.PropertyGroup):
     export_sgm: bpy.props.StringProperty()
 
 
+class LastCallFileArgsGroup(bpy.types.PropertyGroup):
+    export_whm: bpy.props.StringProperty()
+    export_sgm: bpy.props.StringProperty()
+
+
 class DOW_OT_setup_data_path_from_module(bpy.types.Operator):
     """Setup the Mod folder from a mod .module file"""
 
@@ -150,20 +155,25 @@ def get_preferences(context) -> AddonPreferences:
     return context.preferences.addons[__package__].preferences
 
 
-def save_args(prefs: AddonPreferences, op, op_id: str, *arg_names):
+def save_args(storage, op, op_id: str, *arg_names):
     args = {i: getattr(op, i) for i in arg_names}
-    setattr(prefs.last_args, op_id, json.dumps(args))
+    setattr(storage, op_id, json.dumps(args))
 
 
 def remember_last_args(operator, context, args_location: str):
+    last_args = {}
     addon_prefs = get_preferences(context)
-    last_args = getattr(addon_prefs.last_args, args_location)
-    if last_args:
-        for k, v in json.loads(last_args).items():
-            try:
-                setattr(operator, k, v)
-            except Exception:
-                pass
+    last_args_global = getattr(addon_prefs.last_args, args_location)
+    if last_args_global:
+        last_args.update(json.loads(last_args_global))
+    last_args_file = getattr(context.scene.dow_last_args, args_location, None)
+    if last_args_file:
+        last_args.update(json.loads(last_args_file))
+    for k, v in last_args.items():
+        try:
+            setattr(operator, k, v)
+        except Exception:
+            pass
     return operator
 
 
@@ -210,7 +220,7 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
             for cam in bpy.data.cameras:
                 bpy.data.cameras.remove(cam)
         addon_prefs = get_preferences(context)
-        save_args(addon_prefs, self, 'import_whm',
+        save_args(addon_prefs.last_args, self, 'import_whm',
                   'filepath', 'new_project', 'load_wtp', 'strict_mode')
         if not context.scene.dow_export_filename:
             context.scene.dow_export_filename = pathlib.Path(self.filepath).stem
@@ -328,7 +338,7 @@ class ImportTeamcolor(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         addon_prefs = get_preferences(context)
-        save_args(addon_prefs, self, 'import_teamcolor', 'filepath', 'set_as_defaul')
+        save_args(addon_prefs.last_args, self, 'import_teamcolor', 'filepath', 'set_as_defaul')
         loader = importer.WhmLoader(pathlib.Path(addon_prefs.mod_folder), context=context)
         try:
             teamcolor = loader.load_teamcolor(self.filepath)
@@ -439,12 +449,15 @@ class ExportModel:
     def execute(self, context):
         assert self.FORMAT is not None
         addon_prefs = get_preferences(context)
-        save_args(addon_prefs, self, f'export_{self.filename_ext[1:]}',
-                  'filepath', 'object_name', 'meta', 'convert_textures', 'texture_format', 'max_texture_size',
-                  'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout', 'override_files',
-                  'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
-                  )
+        saved_args = [
+            'filepath', 'object_name', 'meta', 'convert_textures', 'texture_format', 'max_texture_size',
+            'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout', 'override_files',
+            'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
+        ]
+        save_args(addon_prefs.last_args, self, f'export_{self.filename_ext[1:]}', *saved_args)
+        save_args(context.scene.dow_last_args, self, f'export_{self.filename_ext[1:]}', *saved_args)
         filepath = pathlib.Path(self.filepath)
+        context.scene.dow_last_export_filename = filepath.stem
         data_folder = filepath.with_suffix('')
         data_subfolder = None
         if self.data_location == 'mod_root':
@@ -482,7 +495,9 @@ class ExportModel:
 
     def invoke(self, context, _event):
         blend_filepath = context.blend_data.filepath
-        if blend_filepath:
+        if context.scene.dow_last_export_filename:
+            blend_filename = context.scene.dow_last_export_filename
+        elif blend_filepath:
             blend_filename = pathlib.Path(blend_filepath).stem
         elif context.scene.dow_export_filename:
             blend_filename = context.scene.dow_export_filename
@@ -567,6 +582,7 @@ def register():
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(LastCallArgsGroup)
+    bpy.utils.register_class(LastCallFileArgsGroup)
     bpy.utils.register_class(DOW_OT_setup_data_path_from_module)
     bpy.utils.register_class(AddonPreferences)
     bpy.types.TOPBAR_MT_file_import.append(import_menu_whm_func)
@@ -574,6 +590,8 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(export_menu_whm_func)
     bpy.types.TOPBAR_MT_file_export.append(export_menu_sgm_func)
     bpy.types.Scene.dow_export_filename = bpy.props.StringProperty()
+    bpy.types.Scene.dow_last_export_filename = bpy.props.StringProperty()
+    bpy.types.Scene.dow_last_args = bpy.props.PointerProperty(type=LastCallFileArgsGroup)
     bpy.types.Object.dow_shadow_mesh = bpy.props.PointerProperty(
         type=bpy.types.Object,
         name='shadow',
@@ -593,6 +611,8 @@ def unregister():
     bpy.utils.unregister_class(DOW_FH_whm_import)
     del bpy.types.Image.dow_export_path
     del bpy.types.Object.dow_shadow_mesh
+    del bpy.types.Scene.dow_last_args
+    del bpy.types.Scene.dow_last_export_filename
     del bpy.types.Scene.dow_export_filename
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_sgm_func)
     bpy.types.TOPBAR_MT_file_export.remove(export_menu_whm_func)
@@ -600,6 +620,7 @@ def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(import_menu_whm_func)
     bpy.utils.unregister_class(AddonPreferences)
     bpy.utils.unregister_class(DOW_OT_setup_data_path_from_module)
+    bpy.utils.unregister_class(LastCallFileArgsGroup)
     bpy.utils.unregister_class(LastCallArgsGroup)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
