@@ -253,7 +253,7 @@ class WhmLoader:
                 node_global_to_camera = mat.node_tree.nodes.new('ShaderNodeVectorTransform')
                 node_global_to_camera.convert_to = 'CAMERA'
                 node_global_to_camera.location = -600, -200
-                links.new(node_uv.outputs[6], node_global_to_camera.inputs['Vector'])
+                links.new(uv_vector, node_global_to_camera.inputs['Vector'])
                 node_fix_reflect = mat.node_tree.nodes.new('ShaderNodeMapping')
                 node_fix_reflect.label = 'Rotate reflection vector'
                 node_fix_reflect.vector_type = 'VECTOR'
