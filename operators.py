@@ -617,11 +617,11 @@ class DOW_OT_make_material_animated(bpy.types.Operator):
     def poll(cls, context):
         return (
             context.material is not None
-            and context.material.node_tree is not None
-            and context.current_action is not None
+            and getattr(context, 'current_action', None) is not None
         )
 
     def execute(self, context):
+        context.material.use_nodes = True
         node_tree = context.material.node_tree
         if node_tree.animation_data is None:
             node_tree.animation_data_create()
@@ -865,6 +865,7 @@ class DowMaterialTools(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         mat = context.material
+        layout.use_property_decorate = mat.node_tree.animation_data is not None
         if context.active_node is not None and hasattr(context.active_node, 'dow_image_label'):
             layout.row().prop(context.active_node, 'dow_image_label', text='Layer')
             try:
@@ -914,8 +915,8 @@ class DowMaterialTools(bpy.types.Panel):
         ]:
             make_prop_row(layout, mat, prop)
         if (
-            mat.node_tree is not None
-            and mat.node_tree.animation_data is None
+            mat.node_tree is None
+            or mat.node_tree.animation_data is None
         ):
             if context.active_object is not None:
                 obj = context.active_object
@@ -937,10 +938,12 @@ class DowMaterialTools(bpy.types.Panel):
                     current_actions.append(obj.animation_data.action)
                 except AttributeError:
                     pass
+            row = layout.row()
             if current_actions:
-                row = layout.row()
                 row.context_pointer_set(name='current_action', data=current_actions[0])
-                row.operator(DOW_OT_make_material_animated.bl_idname)
+            row.operator(DOW_OT_make_material_animated.bl_idname)
+        else:
+            layout.row().label(text='Material is animated')
 
 
 IMAGE_LAYERS = [
