@@ -10,7 +10,6 @@ SEP = '__'
 ARGS = {
     (bpy.types.Material, 'full_path'): {
         'default': '',
-        'subtype': 'FILE_PATH',
         'description': 'Path to where the game will look for this material. Useful for reusing the same material between multiple models',
     },
     (bpy.types.Material, 'internal'): {
