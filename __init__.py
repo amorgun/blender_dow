@@ -354,6 +354,86 @@ class ImportTeamcolor(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 
+class ExportPanel:
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_parent_id = 'FILE_PT_operator'
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return (
+            operator.bl_idname == 'EXPORT_MODEL_OT_dow_whm'
+            or operator.bl_idname == 'EXPORT_MODEL_OT_dow_sgm'
+        )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        self.draw_impl(context, operator)
+
+    def draw_impl(self, context, operator): ...
+
+
+class ExportPanelMeta(ExportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_export_meta'
+    bl_label = 'Metadata'
+
+    def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'object_name')
+        self.layout.prop(operator, 'meta', text='Custom data')
+
+
+class ExportPanelTextures(ExportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_export_textures'
+    bl_label = 'Textures'
+
+    def draw_impl(self, context, operator):
+        is_whm = operator.bl_idname == 'EXPORT_MODEL_OT_dow_whm'
+        self.layout.prop(operator, 'convert_textures')
+        if is_whm:
+            self.layout.prop(operator, 'texture_format')
+        else:
+            operator.texture_format = exporter.MaterialExportFormat.RSH
+        self.layout.prop(operator, 'max_texture_size')
+        self.layout.prop(operator, 'default_texture_path')
+        if is_whm:
+            self.layout.prop(operator, 'export_teamcolored_rtx')
+            if operator.export_teamcolored_rtx:
+                self.layout.prop(operator, 'teamcolored_rtx_suffix')
+        else:
+            operator.teamcolored_rtx_suffix = ''
+        self.layout.prop(operator, 'data_location')
+        if operator.data_location == 'custom_folder':
+            self.layout.prop(operator, 'custom_data_folder')
+        self.layout.prop(operator, 'store_layout')
+        self.layout.prop(operator, 'override_files')
+
+
+class ExportPanelVertexMerging(ExportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_export_vertex_merging'
+    bl_label = 'Vertex Merging'
+
+    def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'vertex_position_merge_threshold', text='Position Threshold')
+        self.layout.prop(operator, 'vertex_normal_merge_threshold', text='Normal Threshold')
+
+
+class ExportPanelLegacy(ExportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_export_legacy'
+    bl_label = 'Legacy'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'use_legacy_marker_orientation')
+
+
 class ExportModel:
     object_name: bpy.props.StringProperty(
         default='',
@@ -393,10 +473,17 @@ class ExportModel:
         name='Default texture folder',
     )
 
+    export_teamcolored_rtx: bpy.props.BoolProperty(
+        default=False,
+        name='Export teamcolored rtx',
+        description='Export rtx files with teamcolor baked in',
+    )
+
+
     teamcolored_rtx_suffix: bpy.props.StringProperty(
         default='_default_0',
         name='Teamcolored rtx suffix',
-        description='The suffix used for exported rtx files with teamcolor baked in. Leave it empty to disable this feature',
+        description='The suffix used for exported rtx files with teamcolor baked in',
     )
 
     data_location: bpy.props.EnumProperty(
@@ -405,8 +492,16 @@ class ExportModel:
         items=(
             ('mod_root', 'Mod root', 'Put new filed into the mod folder'),
             ('nearby', 'Standalone folder', 'Create a directory with data alongside the exported file'),
+            ('custom_folder', 'Custom folder', 'Manually set the result folder'),
         ),
         default='nearby',
+    )
+
+    custom_data_folder: bpy.props.StringProperty(
+        default='',
+        name='Custom data folder',
+        description='The folder to save textures',
+        # subtype='FILE_PATH',  # Blender cannot have nested fileselectors
     )
 
     store_layout: bpy.props.EnumProperty(
@@ -451,7 +546,8 @@ class ExportModel:
         addon_prefs = get_preferences(context)
         saved_args = [
             'filepath', 'object_name', 'meta', 'convert_textures', 'texture_format', 'max_texture_size',
-            'default_texture_path', 'teamcolored_rtx_suffix', 'data_location', 'store_layout', 'override_files',
+            'default_texture_path', 'export_teamcolored_rtx', 'teamcolored_rtx_suffix',
+            'data_location', 'store_layout', 'custom_data_folder', 'override_files',
             'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
         ]
         save_args(addon_prefs.last_args, self, f'export_{self.filename_ext[1:]}', *saved_args)
@@ -463,6 +559,8 @@ class ExportModel:
         if self.data_location == 'mod_root':
             data_folder = addon_prefs.mod_folder
             data_subfolder = 'data'
+        elif self.data_location == 'custom_folder' and self.custom_data_folder.strip():
+            data_folder = self.custom_data_folder.strip()
         paths = exporter.FileDispatcher(data_folder, layout={
             'flat': exporter.FileDispatcher.Layout.FLAT,
             'flat_folders': exporter.FileDispatcher.Layout.FLAT_FOLDERS,
@@ -477,7 +575,7 @@ class ExportModel:
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
                                    material_export_format=self.texture_format,
-                                   export_teamcolored_rtx=self.teamcolored_rtx_suffix != '',
+                                   export_teamcolored_rtx=self.export_teamcolored_rtx and self.teamcolored_rtx_suffix.strip() != '',
                                    teamcolored_rtx_suffix=self.teamcolored_rtx_suffix,
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
@@ -505,6 +603,9 @@ class ExportModel:
             blend_filename = 'untitled'
         self.filepath = str(pathlib.Path(self.filepath).parent / f'{blend_filename}{self.filename_ext}')
         return super().invoke(context, _event)
+
+    def draw(self, context):
+        pass
 
 
 class ExportWhm(bpy.types.Operator, ExportModel, ExportHelper):
@@ -538,9 +639,6 @@ class ExportSgm(bpy.types.Operator, ExportModel, ExportHelper):
         maxlen=255,
     )
 
-    texture_format: bpy.props.StringProperty(default=exporter.MaterialExportFormat.RSH, options={'HIDDEN'})
-    teamcolored_rtx_suffix: bpy.props.StringProperty(default='', options={'HIDDEN'})
-
     FORMAT = exporter.ExportFormat.SGM
 
 
@@ -565,7 +663,7 @@ def export_menu_sgm_func(self, context):
 
 
 class DOW_FH_whm_import(bpy.types.FileHandler):
-    bl_idname = "CURVE_FH_whm_import"
+    bl_idname = "OBJECT_FH_whm_import"
     bl_label = "File handler for DoW .whm model import"
     bl_import_operator = "import_model.dow_whm"
     bl_file_extensions = ".whm"
@@ -579,6 +677,10 @@ def register():
     bpy.utils.register_class(ImportWhm)
     bpy.utils.register_class(ImportWhmCli)
     bpy.utils.register_class(ImportTeamcolor)
+    bpy.utils.register_class(ExportPanelMeta)
+    bpy.utils.register_class(ExportPanelTextures)
+    bpy.utils.register_class(ExportPanelVertexMerging)
+    bpy.utils.register_class(ExportPanelLegacy)
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(LastCallArgsGroup)
@@ -624,6 +726,10 @@ def unregister():
     bpy.utils.unregister_class(LastCallArgsGroup)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
+    bpy.utils.unregister_class(ExportPanelLegacy)
+    bpy.utils.unregister_class(ExportPanelVertexMerging)
+    bpy.utils.unregister_class(ExportPanelTextures)
+    bpy.utils.unregister_class(ExportPanelMeta)
     bpy.utils.unregister_class(ImportTeamcolor)
     bpy.utils.unregister_class(ImportWhmCli)
     bpy.utils.unregister_class(ImportWhm)
