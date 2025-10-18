@@ -40,12 +40,20 @@ class WhmLoader:
     }
     TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
 
-    def __init__(self, root: pathlib.Path, load_wtp: bool = True, stric_mode: bool = True, context=None):
+    def __init__(
+            self,
+            root: pathlib.Path,
+            load_wtp: bool = True,
+            stric_mode: bool = True,
+            unpacked_texture_folder: str = '//texture_share',
+            context=None,
+        ):
         self.root = root
         self.layout = DowLayout.from_mod_folder(root)
         self.wtp_load_enabled = load_wtp
         self.stric_mode = stric_mode
         self.bpy_context = context
+        self.unpacked_texture_folder = pathlib.Path(unpacked_texture_folder)
         if self.bpy_context is None:
             self.bpy_context = bpy.context
         self.messages = []
@@ -140,17 +148,20 @@ class WhmLoader:
         with tempfile.TemporaryDirectory() as tmpdir:
             is_tga = image_format in (0, 2)
             if is_tga:
-                with open(f'{tmpdir}/{texture_name}.tga', 'wb') as f:
+                filename = f'{texture_name}.tga'
+                with open(f'{tmpdir}/{filename}', 'wb') as f:
                     textures.write_tga(
                         reader.stream, f, current_chunk.size, width, height)
             else:
-                with open(f'{tmpdir}/{texture_name}.dds', 'wb') as f:
+                filename = f'{texture_name}.dds'
+                with open(f'{tmpdir}/{filename}', 'wb') as f:
                     textures.write_dds(
                         reader.stream, f, current_chunk.size, width, height, num_mips, image_format)
             image = bpy.data.images.load(f.name)
             if is_tga:
                 image = utils.flip_image_y(image)
             image.pack()
+            image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / filename)
             image.use_fake_user = True
         return image
 
@@ -316,12 +327,14 @@ class WhmLoader:
                 case 'DATAPTLD':
                     layer_in, data_size = reader.read_struct('<2L')
                     with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in].value}.tga', 'wb') as f:
+                        filename = f'{material_name}_{layer_names[layer_in].value}.tga'
+                        with open(f'{tmpdir}/{filename}', 'wb') as f:
                             textures.write_tga(
                                 reader.stream, f, data_size, width, height, grayscale=True)
                         image = bpy.data.images.load(f.name)
                         image = utils.flip_image_y(image)
                         image.pack()
+                        image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / filename)
                         image.use_fake_user = True
                         loaded_textures[layer_names[layer_in]] = image
                 case 'FOLDIMAG':
@@ -330,12 +343,14 @@ class WhmLoader:
                     current_chunk = reader.read_header('DATADATA')
                     layer_in = -1
                     with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(f'{tmpdir}/{material_name}_{layer_names[layer_in].value}.tga', 'wb') as f:
+                        filename = f'{material_name}_{layer_names[layer_in].value}.tga'
+                        with open(f'{tmpdir}/{filename}', 'wb') as f:
                             textures.write_tga(
                                 reader.stream, f, current_chunk.size, width, height, grayscale=False)
                         image = bpy.data.images.load(f.name)
                         image = utils.flip_image_y(image)
                         image.pack()
+                        image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / filename)
                         image.use_fake_user = True
                         loaded_textures[layer_names[layer_in]] = image
                 case 'DATAPTBD':  # badge - 64 by 64
@@ -1357,6 +1372,7 @@ class WhmLoader:
                 tmpfile.write_bytes(data_path.read_bytes())
                 images[key] = image = bpy.data.images.load(str(tmpfile))
                 image.pack()
+                image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / tmpfile.name)
         for mat in bpy.data.materials:
             if mat.node_tree is None:
                 continue
