@@ -404,9 +404,10 @@ class ExportPanelTextures(ExportPanel, bpy.types.Panel):
         self.layout.prop(operator, 'max_texture_size')
         self.layout.prop(operator, 'default_texture_path')
         if is_whm:
-            self.layout.prop(operator, 'export_teamcolored_rtx')
-            if operator.export_teamcolored_rtx:
-                self.layout.prop(operator, 'teamcolored_rtx_suffix')
+            if operator.texture_format == exporter.MaterialExportFormat.RSH:
+                self.layout.prop(operator, 'export_teamcolored_rtx')
+                if operator.export_teamcolored_rtx:
+                    self.layout.prop(operator, 'teamcolored_rtx_suffix')
         else:
             operator.teamcolored_rtx_suffix = ''
         self.layout.prop(operator, 'data_location')
@@ -575,7 +576,11 @@ class ExportModel:
                                    default_texture_path=self.default_texture_path,
                                    convert_textures=self.convert_textures,
                                    material_export_format=self.texture_format,
-                                   export_teamcolored_rtx=self.export_teamcolored_rtx and self.teamcolored_rtx_suffix.strip() != '',
+                                   export_teamcolored_rtx=(
+                                       self.texture_format == exporter.MaterialExportFormat.RSH
+                                       and self.export_teamcolored_rtx
+                                       and self.teamcolored_rtx_suffix.strip() != ''
+                                   ),
                                    teamcolored_rtx_suffix=self.teamcolored_rtx_suffix,
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
