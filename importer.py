@@ -168,12 +168,15 @@ class WhmLoader:
     def CH_FOLDSHDR(self, reader: ChunkReader, header: ChunkHeader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
         reader = reader.read_folder(header)
         channels = []
+        specilar_mask_value = 0
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'DATAINFO':
                     six_, seven_, roughness_data, one_ = reader.read_struct('<2LfLx')
                 case 'DATACHAN':
                     channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
+                    if channel_idx == 1:
+                        specilar_mask_value = sum(colour_mask[:3]) // 3
                     channel_texture_name = reader.read_str()
                     num_coords = reader.read_one('<4x l 4x')
                     for _ in range(4):  # always 4, not num_coords
@@ -195,7 +198,7 @@ class WhmLoader:
         links = mat.node_tree.links
         node_final = mat.node_tree.nodes[0]
         if roughness_data > 1:
-            node_final.inputs['Metallic'].default_value = 1
+            node_final.inputs['Metallic'].default_value = specilar_mask_value / 255.
             node_final.inputs['Roughness'].default_value = 1 / (math.log2(roughness_data) + 1)
         else:
             node_final.inputs['Metallic'].default_value = 0
