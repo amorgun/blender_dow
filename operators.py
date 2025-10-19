@@ -52,17 +52,6 @@ class DOW_OT_setup_uv_mapping(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_objs: dict):
-    display_name = display_name or prop_name
-    if prop_name in obj:
-        row.prop(obj, f'["{prop_name}"]', text=display_name)
-    else:
-        row.context_pointer_set(name='obj', data=obj)
-        for k, v in extra_objs.items():
-            row.context_pointer_set(name=k, data=v)
-        row.operator(DOW_OT_setup_property.bl_idname, text=f'Set up "{display_name}"').name = prop_name
-
-
 class DOW_OT_attach_object(bpy.types.Operator):
     """Attach the object to the armature"""
 
@@ -836,7 +825,7 @@ class DowTools(bpy.types.Panel):
                         layout.row(),
                         remote_prop_owner,
                         prop_name=props.create_prop_name('visibility', context.active_object.name),
-                        display_name='visibility',
+                        display_name='Visibility',
                         driver_obj=context.active_object,
                     )
         if context.active_pose_bone is not None:
@@ -919,11 +908,11 @@ class DowMaterialTools(bpy.types.Panel):
                     display_name=prop,
                     driver_obj=mat,
                 )
-        for prop in [
-            'full_path',
-            'internal',
+        for prop, display_name in [
+            ('full_path', 'Full Path'),
+            ('internal', 'Internal'),
         ]:
-            make_prop_row(layout, mat, prop)
+            make_prop_row(layout, mat, prop, display_name=display_name)
         if (
             mat.node_tree is None
             or mat.node_tree.animation_data is None
