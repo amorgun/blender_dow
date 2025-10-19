@@ -38,7 +38,7 @@ Yes. The addon supports the new `.whm`+`.rtx` scheme and exports both new `.whm`
 Visit the [**Releases page**](https://github.com/amorgun/blender_dow/releases/) for the latest stable and dev versions.
 
 ## Can you model/texture/animate a unit for me?
-No. In fact, I'm quite bad at the actual modelling part so I'm making tools for the people who are good at it.  
+No. In fact, I'm quite bad at the actual modeling part, so I'm making tools for the people who are good at it.
 But if you have a finished model in Blender chances are I can give you some pointers on how to put it into DoW.
 
 ## Where can I find the addon tools?
@@ -69,11 +69,18 @@ The simplest way to optimize your mesh is the `Autosplit mesh` operator. It will
 ![autosplit_mesh](../images/faq/autosplit_mesh.png)
 
 ## Why do my exported textures use `space_marine` path? How can I change it?
-The addon uses two values to determine the exported path:
-1. **`full_path`** value for the material is useful when you want to use the same material across multiple races.
- ![material_full_path](../images/faq/material_full_path.png)
-2. **`Default texture folder`** in the Export dialogue is used for the materials without `full_path`
- ![default_texture_path](../images/faq/default_texture_path.png)
+Depending on the texture format, the addon uses the following parameters to determine the exported path:
+1. **DE `.rtx` textures**
+    1. **`Single Image Path`** value for the image. You need to select an Image Texture Node in the Shader Editor to set the value for its image.
+   ![single_image_path](../images/faq/single_image_path.png)
+    2. **`Full Path`** value plus the layer suffix.
+     ![material_full_path](../images/faq/material_full_path.png)
+    3. **`Default texture folder`** in the Export dialogue is used for the materials without either `Single Image Path` or `Full Path`
+   ![default_texture_path](../images/faq/default_texture_path.png)
+2. **Vanilla `.rsh` textures**
+    1. **`Full Path`** value for the material
+    2. **`Default texture folder`** in the Export dialogue is used for the materials without `Full Path`
+You can use **`Single Image Path`** and **`Full Path`** to make multiple models share the same image file.
 
 ## Manually copying exported textures to my mod is tedious. Is there a simpler way?
 Yes, you can select `Texture store layout = Full path` in the export dialogue. It will create the same nested folder structure as it expects from the mod folder. Then you can copy it to your mod folder with the `Merge` option selected to automatically put everything into the correct places.  You can also copy it into your `DataGeneric` folder to make it work with the Object Editor.  
@@ -123,12 +130,8 @@ This way you can keep the original parent relations and remove this IK bone afte
 
 ## How can I make animated textures (e.g., tank tracks/chainswords)?
 First of all, you need to set an action for your animated material.
-1. Select a mesh with this material
-2. Go to the Material tab
-3. Find Animation section
-4. Select an action for the `Shader Node Tree` slot (not for the `Material`)
-
-![setup_slot](../images/faq/setup_slot.gif)
+Use `Make Animated` operator on the DoW Addon panelin the Shader Editor
+![make_animated](../images/faq/make_animated.png)
 
 Then you can animate the `UV-offset` property on the addon tools panel in the Shader Node window.  
 Keyframe it the same way you keyframe any other property.  
