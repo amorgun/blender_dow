@@ -542,6 +542,8 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
 
     def execute(self, context):
         actions_to_bake = [bpy.data.actions.get(d.name) for d in self.actions if d.name in bpy.data.actions and d.selected]
+        if context.active_object.animation_data is None:
+            context.active_object.animation_data_create()
         anim_data = context.active_object.animation_data
         orig_action = anim_data.action
         orig_mode = context.mode
@@ -554,9 +556,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
             frames = list(range(int(action.frame_start), last_frame + 1, self.step))
             if frames[-1] != last_frame:
                 frames.append(last_frame)
-            orig_channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
-            if orig_channelbag.fcurves is None and baked_channelbag.fcurves is not None:
-                orig_channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
+            orig_slot = anim_data.action_slot
             baked = anim_utils.bake_action(
                 bpy.context.active_object,
                 action=None,
@@ -576,6 +576,11 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
                     do_custom_props=False),
             )
             baked_channelbag = anim_utils.action_get_channelbag_for_slot(baked, anim_data.action_slot)
+            orig_channelbag = anim_utils.action_get_channelbag_for_slot(action, orig_slot)
+            if (orig_channelbag is None or orig_channelbag.fcurves is None) and baked_channelbag.fcurves is not None:
+                if orig_slot is None:
+                    orig_slot = action.slots.new(id_type='OBJECT', name='Skeleton')
+                orig_channelbag = action.layers[0].strips[0].channelbags.new(orig_slot)
             for baked_fcurve in baked_channelbag.fcurves or []:
                 orig_fcurve = orig_channelbag.fcurves.find(baked_fcurve.data_path, index=baked_fcurve.array_index)
                 if orig_fcurve is not None:
