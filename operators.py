@@ -544,12 +544,19 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
         actions_to_bake = [bpy.data.actions.get(d.name) for d in self.actions if d.name in bpy.data.actions and d.selected]
         anim_data = context.active_object.animation_data
         orig_action = anim_data.action
+        orig_mode = context.mode
+        bpy.ops.object.mode_set(mode='POSE')
         for action_idx, action in enumerate(actions_to_bake):
             anim_data.action = action
+            for bone in context.active_object.pose.bones:
+                bone.matrix_basis.identity()
             last_frame = int(action.frame_end)
             frames = list(range(int(action.frame_start), last_frame + 1, self.step))
             if frames[-1] != last_frame:
                 frames.append(last_frame)
+            orig_channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
+            if orig_channelbag.fcurves is None and baked_channelbag.fcurves is not None:
+                orig_channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
             baked = anim_utils.bake_action(
                 bpy.context.active_object,
                 action=None,
@@ -568,10 +575,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
                     do_bbone=False,
                     do_custom_props=False),
             )
-            orig_channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
             baked_channelbag = anim_utils.action_get_channelbag_for_slot(baked, anim_data.action_slot)
-            if orig_channelbag.fcurves is None and baked_channelbag.fcurves is not None:
-                orig_channelbag = action.layers[0].strips[0].channelbags.new(anim_data.action_slot)
             for baked_fcurve in baked_channelbag.fcurves or []:
                 orig_fcurve = orig_channelbag.fcurves.find(baked_fcurve.data_path, index=baked_fcurve.array_index)
                 if orig_fcurve is not None:
@@ -582,6 +586,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
                     orig_fcurve.keyframe_points.insert(*k.co)
             bpy.data.actions.remove(baked, do_unlink=True)
         anim_data.action = orig_action
+        bpy.ops.object.mode_set(mode=orig_mode)
         return {'FINISHED'}
 
     def invoke(self, context, event):
