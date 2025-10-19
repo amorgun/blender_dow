@@ -80,6 +80,7 @@ Depending on the texture format, the addon uses the following parameters to dete
 2. **Vanilla `.rsh` textures**
     1. **`Full Path`** value for the material
     2. **`Default texture folder`** in the Export dialogue is used for the materials without `Full Path`
+
 You can use **`Single Image Path`** and **`Full Path`** to make multiple models share the same image file.
 
 ## Manually copying exported textures to my mod is tedious. Is there a simpler way?
