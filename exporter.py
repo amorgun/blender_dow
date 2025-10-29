@@ -430,7 +430,7 @@ class Exporter:
                         img_path,
                         force_type=textures.DdsType.DXT1 if layer == textures.MaterialLayers.SPECULAR_MASK else None,
                     ):
-                        self.messages.append(('WARNING', f'Error while converting image {image.name}: {e!r}'))
+                        self.messages.append(('WARNING', f'Error while converting image {image.name}'))
                         continue
                     self.paths.add_info(f'{img_path}.rtx', rtx_path)
                     with writer.start_chunk('FOLDSTXT', name=str(img_path)):
