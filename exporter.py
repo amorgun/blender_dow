@@ -424,6 +424,7 @@ class Exporter:
                     rtx_path = self.paths.get_path(f'{img_path}.rtx')
                     if img_path in self.exported_images:
                         material_images[layer] = img_path
+                        continue
                     if not self.export_de_rtx(
                         image,
                         rtx_path,
