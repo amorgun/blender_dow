@@ -284,7 +284,9 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                 bpy.data.cameras.remove(cam)
         addon_prefs = get_preferences(context)
         save_args(addon_prefs.last_args, self, 'import_whm',
-                  'filepath', 'new_project', 'load_wtp', 'strict_mode')
+                  'filepath', 'new_project', 'load_wtp', 'strict_mode',
+                  'enable_vertex_automerge', 'vertex_position_merge_threshold',
+        )
         if not context.scene.dow_export_filename:
             context.scene.dow_export_filename = pathlib.Path(self.filepath).stem
         with open(self.filepath, 'rb') as f:
