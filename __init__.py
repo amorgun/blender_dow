@@ -177,6 +177,57 @@ def remember_last_args(operator, context, args_location: str):
     return operator
 
 
+class ToolPanel:
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_parent_id = 'FILE_PT_operator'
+    operator_idnames = set()
+    use_property_split: bool = False
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname in cls.operator_idnames
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = self.use_property_split
+        layout.use_property_decorate = False
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+        self.draw_impl(context, operator)
+
+    def draw_impl(self, context, operator): ...
+
+
+class ImportPanel(ToolPanel):
+    operator_idnames = {'IMPORT_MODEL_OT_dow_whm'}
+
+
+class ImportPanelBasicOptions(ImportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_import_common'
+    bl_label = 'Basic Options'
+
+    def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'new_project')
+        self.layout.prop(operator, 'load_wtp')
+        self.layout.prop(operator, 'strict_mode')
+
+
+class ImportPanelVertexMerging(ImportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_import_vertex_merging'
+    bl_label = 'Vertex Merging'
+
+    def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'enable_vertex_automerge')
+        row = self.layout.row()
+        row.enabled = operator.enable_vertex_automerge
+        row.prop(operator, 'vertex_position_merge_threshold', text='Position Threshold')
+
+
 class ImportWhm(bpy.types.Operator, ImportHelper):
     """Import Dawn of War .whm model file"""
     bl_idname = 'import_model.dow_whm'
@@ -209,6 +260,18 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
         default=False,
     )
 
+    enable_vertex_automerge: bpy.props.BoolProperty(
+        name='Enable Vertex Automerge',
+        description='Automatically merge close vertices',
+        default=True,
+    )
+
+    vertex_position_merge_threshold: bpy.props.FloatProperty(
+        name='Vertex merging position threshold',
+        description='Maximum distance between merged vertices',
+        default=0.01, min=0, soft_max=1,
+    )
+
     def execute(self, context):
         if self.new_project:
             bpy.ops.wm.read_homefile(app_template='')
@@ -230,6 +293,8 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                 pathlib.Path(addon_prefs.mod_folder),
                 load_wtp=self.load_wtp,
                 stric_mode=self.strict_mode,
+                enable_vertex_automerge=self.enable_vertex_automerge,
+                vertex_position_merge_threshold=self.vertex_position_merge_threshold,
                 context=context,
             )
             window = context.window_manager.windows[0]
@@ -252,6 +317,9 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                     for message_lvl, message in loader.messages:
                         self.report({message_lvl}, message)
         return {'FINISHED'}
+
+    def draw(self, context):
+        pass
 
 
 class ImportWhmCli(bpy.types.Operator):
@@ -354,31 +422,8 @@ class ImportTeamcolor(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 
-class ExportPanel:
-    bl_space_type = 'FILE_BROWSER'
-    bl_region_type = 'TOOL_PROPS'
-    bl_parent_id = 'FILE_PT_operator'
-
-    @classmethod
-    def poll(cls, context):
-        sfile = context.space_data
-        operator = sfile.active_operator
-
-        return (
-            operator.bl_idname == 'EXPORT_MODEL_OT_dow_whm'
-            or operator.bl_idname == 'EXPORT_MODEL_OT_dow_sgm'
-        )
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        sfile = context.space_data
-        operator = sfile.active_operator
-        self.draw_impl(context, operator)
-
-    def draw_impl(self, context, operator): ...
+class ExportPanel(ToolPanel):
+    operator_idnames = {'EXPORT_MODEL_OT_dow_whm', 'EXPORT_MODEL_OT_dow_sgm'}
 
 
 class ExportPanelMeta(ExportPanel, bpy.types.Panel):
@@ -679,6 +724,8 @@ class DOW_FH_whm_import(bpy.types.FileHandler):
 
 
 def register():
+    bpy.utils.register_class(ImportPanelBasicOptions)
+    bpy.utils.register_class(ImportPanelVertexMerging)
     bpy.utils.register_class(ImportWhm)
     bpy.utils.register_class(ImportWhmCli)
     bpy.utils.register_class(ImportTeamcolor)
@@ -738,3 +785,5 @@ def unregister():
     bpy.utils.unregister_class(ImportTeamcolor)
     bpy.utils.unregister_class(ImportWhmCli)
     bpy.utils.unregister_class(ImportWhm)
+    bpy.utils.unregister_class(ImportPanelVertexMerging)
+    bpy.utils.unregister_class(ImportPanelBasicOptions)

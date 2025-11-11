@@ -27,7 +27,7 @@ class BoneData:  # -- Structure To Hold Bone Data (4, X, 4, 28)
 @dataclasses.dataclass
 class SkinVertice:
     weights: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
-    bone: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
+    bones: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
 
 
 class WhmLoader:
@@ -45,6 +45,10 @@ class WhmLoader:
             root: pathlib.Path,
             load_wtp: bool = True,
             stric_mode: bool = True,
+            enable_vertex_automerge: bool = True,
+            vertex_position_merge_threshold: float = 0.01,
+            vertex_normal_merge_threshold: float = 1.99,
+            vertex_weight_merge_threshold: float = 0.01,
             unpacked_texture_folder: str = '//texture_share',
             context=None,
         ):
@@ -52,8 +56,12 @@ class WhmLoader:
         self.layout = DowLayout.from_mod_folder(root)
         self.wtp_load_enabled = load_wtp
         self.stric_mode = stric_mode
-        self.bpy_context = context
+        self.enable_vertex_automerge = enable_vertex_automerge
+        self.vertex_position_merge_threshold = vertex_position_merge_threshold
+        self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
+        self.vertex_weight_merge_threshold = vertex_weight_merge_threshold
         self.unpacked_texture_folder = pathlib.Path(unpacked_texture_folder)
+        self.bpy_context = context
         if self.bpy_context is None:
             self.bpy_context = bpy.context
         self.messages = []
@@ -1019,7 +1027,7 @@ class WhmLoader:
                 for bone_slot in range(4):
                     bone_idx = reader.read_one('<B')
                     if bone_idx == 255:
-                        skin_vert.bone[bone_slot] = None
+                        skin_vert.bones[bone_slot] = None
                         continue
                     bone_name = idx_to_bone_name.get(bone_idx)
                     if bone_name is None:
@@ -1027,10 +1035,10 @@ class WhmLoader:
                             if not skin_data_warn:
                                 self.messages.append(('WARNING', f'Mesh "{mesh_name}": bone index {bone_idx} (slot {bone_slot}) is out of range ({len(bone_array) - 1})'))
                                 skin_data_warn = True
-                            skin_vert.bone[bone_slot] = None
+                            skin_vert.bones[bone_slot] = None
                             continue
                         bone_name = bone_array[bone_idx].name
-                    skin_vert.bone[bone_slot] = bone_name
+                    skin_vert.bones[bone_slot] = bone_name
 
                 # -- Add Vertex To Array
                 skin_vert_array.append(skin_vert)
@@ -1129,26 +1137,82 @@ class WhmLoader:
 
         #---< CREATE MESH >---
 
+        if self.enable_vertex_automerge:
+            vertex_kd = mathutils.kdtree.KDTree(num_vertices)
+            for idx, v in enumerate(vert_array):
+                vertex_kd.insert(v, idx)
+            vertex_kd.balance()
+            vertex_group_by_postition = {}
+            seen_data = {}
+            idx2merged = {}
+            merged_vert_ids = []
+            for orig_vertex_idx, v in enumerate(vert_array):
+                for (co, index, dist) in vertex_kd.find_range(v, self.vertex_position_merge_threshold):
+                    if index == orig_vertex_idx:
+                        continue
+                    if index in vertex_group_by_postition:
+                        vertex_group_key = vertex_group_by_postition[index]
+                        break
+                else:
+                    vertex_group_key = vertex_group_by_postition[orig_vertex_idx] = orig_vertex_idx
+                seen_vertex_data = seen_data.setdefault(vertex_group_key, [])
+                vertex_normal = normal_array[orig_vertex_idx]
+                if num_skin_bones:
+                    skin_vert_data = skin_vert_array[orig_vertex_idx]
+                    bone_ids = tuple(skin_vert_data.bones)
+                    bone_weights = mathutils.Vector(skin_vert_data.weights)
+                else:
+                    bone_ids = 0
+                    bone_weights = mathutils.Vector.Fill(4)
+                vertex_idx = None
+                for idx, other_normal, other_bone_ids, other_bone_weights in seen_vertex_data:
+                    if (
+                        (other_normal - vertex_normal).length < self.vertex_normal_merge_threshold
+                        and bone_ids == other_bone_ids
+                        and (bone_weights - other_bone_weights).length < self.vertex_weight_merge_threshold
+                    ):
+                        vertex_idx = idx
+                        break
+                if vertex_idx is None:
+                    vertex_idx = len(merged_vert_ids)
+                    seen_vertex_data.append((vertex_idx, vertex_normal, bone_ids, bone_weights))
+                    merged_vert_ids.append(orig_vertex_idx)
+                idx2merged[orig_vertex_idx] = vertex_idx
+            vert_array = [vert_array[i] for i in merged_vert_ids]
+            skin_vert_array = [skin_vert_array[i] for i in merged_vert_ids] if num_skin_bones else []
+            old_face_array = face_array
+            face_array = []
+            split_normals = []
+            face_uv_data = []
+            seen_faces = set()
+            for face in old_face_array:
+                new_face = [idx2merged[i] for i in face]
+                if not (new_face[0] != new_face[1] != new_face[2] != new_face[0]):
+                    continue
+                f_key = tuple(sorted(new_face))
+                if f_key in seen_faces:
+                    continue
+                seen_faces.add(f_key)
+                face_array.append(new_face)
+                split_normals.extend(normal_array[i] for i in face)
+                face_uv_data.extend(f for i in face for f in uv_array[i])
+            del normal_array
+            del uv_array
+        else:
+            split_normals = [normal_array[v] for p in face_array for v in p]
+            face_uv_data = [f for p in face_array for v in p for f in uv_array[v]]
+
         new_mesh = bpy.data.meshes.new(mesh_name)
-        new_mesh.from_pydata(vert_array, [], face_array)  # -- Create New Mesh
-
-        # TODO capture output
-        # Note: redirect_stdout doesn't work. See https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
-        has_errors = new_mesh.validate(verbose=True)
-
-        if has_errors:
-            self.messages.append(('WARNING', f'Mesh {mesh_name} has some errors'))
+        new_mesh.from_pydata(vert_array, [], face_array, shade_flat=False)  # -- Create New Mesh
 
         #---< MESH PROPERTIES >---
 
         #new_mesh.wireColor = (color 28 89 177)												-- Set Color (Blue)
-        for p in new_mesh.polygons:
-            p.use_smooth = True
-        new_mesh.normals_split_custom_set_from_vertices(normal_array)
+        new_mesh.normals_split_custom_set(split_normals)
 
         for mat in materials:  # -- Set Material
             new_mesh.materials.append(mat)
-        
+
         new_mesh.polygons.foreach_set('material_index', matid_array)
 
         obj = bpy.data.objects.new(mesh_name, new_mesh)
@@ -1159,7 +1223,7 @@ class WhmLoader:
 
         vertex_groups = {}
         for vert_idx, vert in enumerate([] if xref else skin_vert_array):
-            for bone_weight, bone_name in zip(vert.weights, vert.bone):
+            for bone_weight, bone_name in zip(vert.weights, vert.bones):
                 if bone_name is None or bone_weight == 0:
                     continue
                 vertex_group =  vertex_groups.get(bone_name)
@@ -1170,19 +1234,14 @@ class WhmLoader:
         #---< UV MAP >---
 
         uv_layer = new_mesh.uv_layers.new()
-        
-        # From https://blenderartists.org/t/importing-uv-coordinates/595872/5
+        uv_layer.data.foreach_set('uv', face_uv_data)  # -- Set UVW Coordinates
 
-        #initialize an empty list
-        per_loop_list = [0.0] * len(new_mesh.loops)
+        # TODO capture output
+        # Note: redirect_stdout doesn't work. See https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
+        has_errors = new_mesh.validate(verbose=True)
 
-        for loop in new_mesh.loops:
-            per_loop_list[loop.index] = uv_array[loop.vertex_index]
-
-        # flattening
-        per_loop_list = [uv for pair in per_loop_list for uv in pair]
-
-        uv_layer.data.foreach_set('uv', per_loop_list)  # -- Set UVW Coordinates
+        if has_errors:
+            self.messages.append(('WARNING', f'Mesh {mesh_name} has some errors'))
 
         if self.blender_mesh_root is None:
             self.blender_mesh_root = bpy.data.collections.new('Meshes')
