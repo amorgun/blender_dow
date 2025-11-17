@@ -1288,9 +1288,9 @@ class Exporter:
             anim_sections = collections.defaultdict(dict)
             prop_fcurves = collections.defaultdict(dict)
             max_fcurve_frame = 0
+            animated_cameras = []
             for slot in action.slots:
                 channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
-                animated_cameras = []
                 for anim_root in slot_owers.get(slot, []):
                     if anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'CAMERA':
                         animated_cameras.append(anim_root)
