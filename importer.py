@@ -46,7 +46,7 @@ class WhmLoader:
             load_wtp: bool = True,
             stric_mode: bool = True,
             enable_vertex_automerge: bool = True,
-            vertex_position_merge_threshold: float = 0.01,
+            vertex_position_merge_threshold: float = 0.001,
             vertex_normal_merge_threshold: float = 1.99,
             vertex_weight_merge_threshold: float = 0.01,
             unpacked_texture_folder: str = '//texture_share',
