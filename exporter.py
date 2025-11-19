@@ -345,7 +345,8 @@ class Exporter:
             if not (
                 node.bl_idname == 'ShaderNodeTexImage'
                 and node.label in teamcolor_node_labels
-                and not node.get('PLACEHOLDER', False)
+                and node.image is not None
+                and not node.image.get('PLACEHOLDER', False)
             ):
                 continue
             try:
@@ -361,7 +362,8 @@ class Exporter:
                 and link.to_node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None)
                 and link.to_socket.identifier.endswith('_value')
                 and link.from_node.bl_idname == 'ShaderNodeTexImage'
-                and not link.from_node.get('PLACEHOLDER', False)
+                and link.from_node.image is not None
+                and not link.from_node.image.get('PLACEHOLDER', False)
             ):
                 try:
                     slot = textures.TeamcolorLayers(link.to_socket.identifier[:-len('_value')])
@@ -1107,7 +1109,7 @@ class Exporter:
                         mat_faces = {}
                         for poly, extended_verts in zip(mesh.loop_triangles, extended_polygons):
                             mat_faces.setdefault(poly.material_index, []).append(extended_verts)
-                        materials = [(idx, m) for idx, m in enumerate(mesh.materials) if idx in mat_faces]
+                        materials = [(idx, m) for idx, m in enumerate(mesh.materials) if idx in mat_faces and m is not None]
                         writer.write_struct('<l', len(materials))
                         for mat_idx, mat in materials:
                             writer.write_str(self.exported_materials.get(mat.name, f'missing_mat_{mat_idx}'))
