@@ -628,6 +628,43 @@ class DOW_OT_make_material_animated(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class DOW_OT_setup_material(bpy.types.Operator):
+    """Recreate material nodes from scratch"""
+
+    bl_idname = 'object.dow_setup_material'
+    bl_label = 'Setup material'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    create_specular: bpy.props.BoolProperty(
+        name='Specular',
+        default=True,
+    )
+
+    create_opacity: bpy.props.BoolProperty(
+        name='Opacity',
+        default=True,
+    )
+
+    create_teamcolor: bpy.props.BoolProperty(
+        name='Teamcolor',
+        default=True,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return context.material is not None
+
+    def execute(self, context):
+        context.material.use_nodes = True
+        node_tree = context.material.node_tree
+        links = node_tree.links
+        node_tree.nodes.clear()
+        node_final = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+        node_output = node_tree.nodes.new('ShaderNodeOutputMaterial')
+        links.new(node_final.outputs[0], node_output.inputs['Surface'])
+        return {'FINISHED'}
+
+
 def get_animation_data(obj):
     if obj.animation_data is not None:
         return obj.animation_data
@@ -937,6 +974,7 @@ class DowMaterialTools(bpy.types.Panel):
                     current_actions.append(obj.animation_data.action)
                 except AttributeError:
                     pass
+            # layout.row().operator(DOW_OT_setup_material.bl_idname)
             row = layout.row()
             if current_actions:
                 row.context_pointer_set(name='current_action', data=current_actions[0])
@@ -1103,6 +1141,7 @@ def register():
     bpy.utils.register_class(ActionSettings)
     bpy.utils.register_class(DOW_OT_batch_configure_invisible)
     bpy.utils.register_class(DOW_OT_batch_bake_actions)
+    bpy.utils.register_class(DOW_OT_setup_material)
     bpy.utils.register_class(DOW_OT_make_material_animated)
     for t in [
         bpy.types.Object,
@@ -1187,6 +1226,7 @@ def unregister():
     ]:
         del t.dow_name
     bpy.utils.unregister_class(DOW_OT_make_material_animated)
+    bpy.utils.unregister_class(DOW_OT_setup_material)
     bpy.utils.unregister_class(DOW_OT_batch_bake_actions)
     bpy.utils.unregister_class(DOW_OT_batch_configure_invisible)
     bpy.utils.unregister_class(ActionSettings)
