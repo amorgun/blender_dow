@@ -219,8 +219,8 @@ class WhmLoader:
         node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
         node_object_info.location = node_final.location[1] - 1600, node_final.location[1]
 
-        has_legacy_specular = any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
         has_specular = any(c['idx'] == 1 and c['texture_name'] != '' for c in channels)
+        has_legacy_specular = has_specular and any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
         if has_specular:
             node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
             node_calc_spec.data_type = 'RGBA'
