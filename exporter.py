@@ -753,8 +753,12 @@ class Exporter:
                     ]:
                         if not images.get(key):
                             continue
+                        pos = data.get('position', [0, 0])
+                        if pos[0] >= width or pos[0] >= height:
+                            continue
+                        size = data.get('display_size', default_size)
                         with writer.start_chunk(chunk_name):
-                            writer.write_struct('<4f', *data.get('position', [0, 0]), *data.get('display_size', default_size))
+                            writer.write_struct('<4f', *pos, min(size[0], width - pos[0]), min(size[1], height - pos[1]))
             dst_path.parent.mkdir(exist_ok=True, parents=True)
             self.copy_file(exported_file, dst_path)
         return True
