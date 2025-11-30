@@ -5,7 +5,7 @@ import platform
 import bpy
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from . import importer, exporter, operators, props
+from . import importer, exporter, operators, materials
 
 
 ADDON_LOCATION = pathlib.Path(__file__).parent
@@ -305,8 +305,8 @@ class ImportWhm(bpy.types.Operator, ImportHelper):
                     loader.load(reader)
                     if self.load_wtp:
                         loader.apply_teamcolor({
-                            **{k: getattr(addon_prefs, f'{k.value.lower()}_color') for k in loader.TEAMCOLORABLE_LAYERS},
-                            **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
+                            **{k: getattr(addon_prefs, f'{k.value}_color') for k in materials.TEAMCOLORABLE_LAYERS},
+                            **{k: getattr(addon_prefs, f'{k.value}_path') for k in materials.TEAMCOLOR_IMAGES},
                         })
                     for area in context.screen.areas:
                         if area.type == 'VIEW_3D':
@@ -370,8 +370,8 @@ class ImportWhmCli(bpy.types.Operator):
                 try:
                     loader.load(reader)
                     loader.apply_teamcolor({
-                        **{k: getattr(addon_prefs, f'{k.value.lower()}_color') for k in loader.TEAMCOLORABLE_LAYERS},
-                        **{k: getattr(addon_prefs, f'{k}_path') for k in loader.TEAMCOLORABLE_IMAGES},
+                        **{k: getattr(addon_prefs, f'{k.value}_color') for k in materials.TEAMCOLORABLE_LAYERS},
+                        **{k: getattr(addon_prefs, f'{k.value}_path') for k in materials.TEAMCOLOR_IMAGES},
                     })
                     for area in context.screen.areas:
                         if area.type == 'VIEW_3D':
@@ -414,10 +414,10 @@ class ImportTeamcolor(bpy.types.Operator, ImportHelper):
             teamcolor = loader.load_teamcolor(self.filepath)
             loader.apply_teamcolor(teamcolor)
             if self.set_as_defaul:
-                for c in loader.TEAMCOLORABLE_LAYERS:
-                    setattr(addon_prefs, f'{c}_color', teamcolor.get(c, getattr(addon_prefs, f'{c}_color')))
-                for c in loader.TEAMCOLORABLE_IMAGES:
-                    setattr(addon_prefs, f'{c}_path', str(teamcolor.get(c, getattr(addon_prefs, f'{c}_path'))))
+                for c in materials.TEAMCOLORABLE_LAYERS:
+                    setattr(addon_prefs, f'{c.value}_color', teamcolor.get(c, getattr(addon_prefs, f'{c.value}_color')))
+                for c in materials.TEAMCOLOR_IMAGES:
+                    setattr(addon_prefs, f'{c.value}_path', str(teamcolor.get(c, getattr(addon_prefs, f'{c.value}_path'))))
         finally:
             for message_lvl, message in loader.messages:
                 self.report({message_lvl}, message)

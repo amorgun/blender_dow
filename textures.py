@@ -7,29 +7,6 @@ from PIL import Image as PilImage
 
 
 @enum.unique
-class MaterialLayers(str, enum.Enum):
-    DIFFUSE = 'diffuse'
-    SPECULAR_MASK = 'specularity'
-    SPECULAR_REFLECTION = 'reflection'
-    SELF_ILLUMUNATION_MASK = 'self_illumination'
-    SELF_ILLUMUNATION_COLOR = 'self_illumination_color'
-    OPACITY = 'opacity'
-
-
-@enum.unique
-class TeamcolorLayers(str, enum.Enum):
-    PRIMARY = 'primary'
-    SECONDARY = 'secondary'
-    TRIM = 'trim'
-    WEAPONS = 'weapons'
-    EYES = 'eyes'
-    DIRT = 'dirt'
-    DEFAULT = 'default'
-    BADGE = 'badge'
-    BANNER = 'banner'
-
-
-@enum.unique
 class DdsType(enum.Enum):
     DXT1 = enum.auto()
     DXT5 = enum.auto()

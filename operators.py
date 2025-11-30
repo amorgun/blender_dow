@@ -3,7 +3,7 @@ from bpy_extras import anim_utils
 import bmesh
 import mathutils
 
-from . import props, utils, textures
+from . import props, utils, materials
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -45,7 +45,7 @@ class DOW_OT_setup_uv_mapping(bpy.types.Operator):
         mat = context.mat
         mat.use_nodes = True
         links = mat.node_tree.links
-        uv_vector = utils.setup_uv_offset(mat, -1600, 200)
+        uv_vector = materials.setup_uv_offset(mat, -1600, 200)
         for node_tex in mat.node_tree.nodes:
             if node_tex.bl_idname == 'ShaderNodeTexImage' and not node_tex.inputs['Vector'].links:
                 links.new(uv_vector, node_tex.inputs['Vector'])
@@ -632,22 +632,29 @@ class DOW_OT_setup_material(bpy.types.Operator):
     """Recreate material nodes from scratch"""
 
     bl_idname = 'object.dow_setup_material'
-    bl_label = 'Setup material'
+    bl_label = 'Create node tree'
     bl_options = {'REGISTER', 'UNDO'}
 
-    create_specular: bpy.props.BoolProperty(
-        name='Specular',
-        default=True,
+    layers_mode: bpy.props.EnumProperty(
+        name='Layers',
+        description='What texture layers to set up',
+        items=(
+            ('keep', 'Keep', 'Keep currently present layers'),
+            ('de', 'Definitive Edition', 'Create all available Definitive Edition layers'),
+            ('ae', 'Vanilla', 'Create all available Anniversary Edition layers'),
+        ),
+        default='keep',
     )
 
-    create_opacity: bpy.props.BoolProperty(
-        name='Opacity',
-        default=True,
-    )
-
-    create_teamcolor: bpy.props.BoolProperty(
+    teamcolor_mode: bpy.props.EnumProperty(
         name='Teamcolor',
-        default=True,
+        description='What to do with teamcolor nodes',
+        items=(
+            ('keep', 'Keep', 'Keep currently present nodes'),
+            ('create', 'Create', 'Create teamcolor nodes'),
+            ('remove', 'Remove', "Don't create teamcolor nodes"),
+        ),
+        default='keep',
     )
 
     @classmethod
@@ -655,6 +662,8 @@ class DOW_OT_setup_material(bpy.types.Operator):
         return context.material is not None
 
     def execute(self, context):
+        material_info = materials.extract_material_info(context.material)
+        teamcolor_info = materials.extract_teamcolor_info(context.material)
         context.material.use_nodes = True
         node_tree = context.material.node_tree
         links = node_tree.links
@@ -662,7 +671,36 @@ class DOW_OT_setup_material(bpy.types.Operator):
         node_final = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
         node_output = node_tree.nodes.new('ShaderNodeOutputMaterial')
         links.new(node_final.outputs[0], node_output.inputs['Surface'])
+        if self.layers_mode == 'ae':
+            layers = [
+                materials.MaterialLayers.DIFFUSE,
+                materials.MaterialLayers.SPECULAR_MASK,
+                materials.MaterialLayers.SPECULAR_REFLECTION,
+                materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
+                materials.MaterialLayers.OPACITY,
+            ]
+        if self.layers_mode == 'de':
+            layers = [
+                materials.MaterialLayers.DIFFUSE,
+                materials.MaterialLayers.SPECULAR_MASK,
+                materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
+                materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,
+                materials.MaterialLayers.OPACITY,
+            ]
+        if self.layers_mode != 'keep':
+            placeholder_image = materials.create_placeholder_image()
+            material_info.channel_images = {k: material_info.channel_images.get(k, placeholder_image) for k in layers}
+        use_teamcolor = (
+            self.teamcolor_mode == 'create'
+            or (self.teamcolor_mode == 'keep' and material_info.teamcolor_images)
+        )
+        materials.setup_material(context.material, material_info, force_teamcolor=use_teamcolor)
+        if use_teamcolor:
+            materials.apply_teamcolor(context.material, teamcolor_info)
         return {'FINISHED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
 
 
 def get_animation_data(obj):
@@ -693,7 +731,6 @@ def get_fcurve_flag(anim_data, data_paths, default):
 def set_fcurve_flag(anim_data, data_paths, value, default, group: str, obj_name: str):
     action = anim_data.action
     utils.ensure_channelbag_exists(action, anim_data.action_slot)
-    # slot = action.slots.new(id_type='OBJECT', name="Suzanne")
     channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
     fcurves = channelbag.fcurves
     for fcurve in list(fcurves):
@@ -905,7 +942,7 @@ class DowMaterialTools(bpy.types.Panel):
         if context.active_node is not None and hasattr(context.active_node, 'dow_image_label'):
             layout.row().prop(context.active_node, 'dow_image_label', text='Layer')
             try:
-                textures.MaterialLayers(context.active_node.dow_image_label.lower())
+                materials.MaterialLayers(context.active_node.dow_image_label.lower())
                 if context.active_node.image is None:
                     layout.row().label(text='No image selected')
                 else:
@@ -917,7 +954,7 @@ class DowMaterialTools(bpy.types.Panel):
         if remote_prop_owner is None:
             node = None
             if mat.node_tree is not None:
-                node = utils.get_uv_offset_node(mat)
+                node = materials.get_uv_offset_node(mat)
                 for shader_node in mat.node_tree.nodes:
                     if shader_node.bl_idname == 'ShaderNodeBsdfPrincipled':
                         layout.row().prop(shader_node.inputs['Metallic'], 'default_value', text='Default Reflections')
@@ -974,7 +1011,8 @@ class DowMaterialTools(bpy.types.Panel):
                     current_actions.append(obj.animation_data.action)
                 except AttributeError:
                     pass
-            # layout.row().operator(DOW_OT_setup_material.bl_idname)
+            layout.separator()
+            layout.row().operator(DOW_OT_setup_material.bl_idname)
             row = layout.row()
             if current_actions:
                 row.context_pointer_set(name='current_action', data=current_actions[0])
@@ -985,19 +1023,19 @@ class DowMaterialTools(bpy.types.Panel):
 
 IMAGE_LAYERS = [
     ('NONE', 'None', ''),
-    *[(k, k.replace('_', ' ').capitalize(), k) for k in textures.MaterialLayers],
+    *[(k, k.replace('_', ' ').capitalize(), k) for k in materials.MaterialLayers],
     *[(k, f'Teamcolor {k.capitalize()}', f'color_layer_{k.value}') for k in [
-        textures.TeamcolorLayers.DEFAULT,
-        textures.TeamcolorLayers.DIRT,
-        textures.TeamcolorLayers.PRIMARY,
-        textures.TeamcolorLayers.SECONDARY,
-        textures.TeamcolorLayers.TRIM,
-        textures.TeamcolorLayers.WEAPONS,
-        textures.TeamcolorLayers.EYES
+        materials.TeamcolorLayers.DEFAULT,
+        materials.TeamcolorLayers.DIRT,
+        materials.TeamcolorLayers.PRIMARY,
+        materials.TeamcolorLayers.SECONDARY,
+        materials.TeamcolorLayers.TRIM,
+        materials.TeamcolorLayers.WEAPONS,
+        materials.TeamcolorLayers.EYES
     ]],
     *[(k, k.capitalize(), k) for k in [
-        textures.TeamcolorLayers.BADGE,
-        textures.TeamcolorLayers.BANNER,
+        materials.TeamcolorLayers.BADGE,
+        materials.TeamcolorLayers.BANNER,
     ]],
 ]
 

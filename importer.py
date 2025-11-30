@@ -7,7 +7,7 @@ import tempfile
 import bpy
 import mathutils
 
-from . import textures, utils, props
+from . import textures, materials, utils, props
 from .chunky import ChunkReader, ChunkHeader
 from .dow_layout import DowLayout, LayoutPath, DirectoryPath
 
@@ -31,15 +31,6 @@ class SkinVertice:
 
 
 class WhmLoader:
-    TEAMCOLORABLE_LAYERS = {
-        textures.TeamcolorLayers.PRIMARY,
-        textures.TeamcolorLayers.SECONDARY, 
-        textures.TeamcolorLayers.TRIM,
-        textures.TeamcolorLayers.WEAPONS,
-        textures.TeamcolorLayers.EYES,
-    }
-    TEAMCOLORABLE_IMAGES = {'badge', 'banner'}
-
     def __init__(
             self,
             root: pathlib.Path,
@@ -85,10 +76,6 @@ class WhmLoader:
         self.armature = bpy.data.armatures.new('Armature')
         self.armature_obj = bpy.data.objects.new('Armature', self.armature)
         self.armature_obj.show_in_front = True
-
-        self.default_image = bpy.data.images.new('NOT_SET', 1, 1)
-        self.default_image['PLACEHOLDER'] = True
-        self.default_image.use_fake_user = True
 
     def ensure(self, condition: bool, message: str, level: str = 'WARNING'):
         if self.stric_mode:
@@ -200,107 +187,31 @@ class WhmLoader:
         material_name = pathlib.Path(material_path).name
         mat = bpy.data.materials.new(name=material_name)
         props.setup_property(mat, 'full_path', material_path)
-        mat.blend_method = 'CLIP'  # FIXME it doesn't work now
-        mat.show_transparent_back = False
         mat.use_nodes = True
-        links = mat.node_tree.links
-        node_final = mat.node_tree.nodes[0]
-        if roughness_data > 1:
-            node_final.inputs['Metallic'].default_value = specilar_mask_value / 255.
-            node_final.inputs['Roughness'].default_value = 1 / (math.log2(roughness_data) + 1)
-        else:
-            node_final.inputs['Metallic'].default_value = 0
-        node_final.inputs['Specular IOR Level'].default_value = 0
-        node_final.location = 150, 400
-        mat.node_tree.nodes[1].location = node_final.location[0] + 400, node_final.location[1]
 
-        uv_vector = utils.setup_uv_offset(mat, node_final.location[1] - 1600, node_final.location[1] - 200)
-
-        node_object_info = mat.node_tree.nodes.new('ShaderNodeObjectInfo')
-        node_object_info.location = node_final.location[1] - 1600, node_final.location[1]
-
-        has_specular = any(c['idx'] == 1 and c['texture_name'] != '' for c in channels)
-        has_legacy_specular = has_specular and any(c['idx'] == 2 and c['texture_name'] != '' for c in channels)
-        if has_specular:
-            node_calc_spec = mat.node_tree.nodes.new('ShaderNodeMix')
-            node_calc_spec.data_type = 'RGBA'
-            node_calc_spec.clamp_result = True
-            if has_legacy_specular:
-                node_calc_spec.inputs['Factor'].default_value = 0
-                node_calc_spec.blend_type = 'MIX'
-            else:
-                node_calc_spec.inputs['Factor'].default_value = 0.5
-                node_calc_spec.blend_type = 'ADD'
-                node_calc_spec.inputs['A'].default_value = 1, 1, 1, 1
-                node_calc_spec.inputs['B'].default_value = 0, 0, 0, 1
-            node_calc_spec.label = 'Apply spec'
-            node_calc_spec.location = node_final.location[0] - 300, node_final.location[1]
-
-        node_calc_alpha = mat.node_tree.nodes.new('ShaderNodeMath')
-        node_calc_alpha.operation = 'MULTIPLY'
-        node_calc_alpha.use_clamp = True
-        node_calc_alpha.inputs[1].default_value = 1
-        node_calc_alpha.location = node_final.location[0] - 300, node_final.location[1] - 250,
-        links.new(node_object_info.outputs['Alpha'], node_calc_alpha.inputs[0])
-        links.new(node_calc_alpha.outputs[0], node_final.inputs['Alpha'])
-
-        created_tex_nodes = {}
+        material_data = materials.MaterialInfo(
+            roughness_value=1 / (math.log2(roughness_data) + 1) if roughness_data > 1 else 0,
+            default_specilar_mask_value=specilar_mask_value / 255.,
+        )
         for channel in channels:
             if (texture_name := channel['texture_name'].lower()) == '':
                 continue
             channel_idx = channel['idx']
-            inputs, node_label = {
-                0: ([node_calc_spec.inputs['A'] if has_specular else node_final.inputs['Base Color'], node_final.inputs['Emission Color']], textures.MaterialLayers.DIFFUSE),
-                1: ([node_calc_spec.inputs['Factor']] if has_legacy_specular else [node_calc_spec.inputs['B'], node_final.inputs['Specular Tint']] if has_specular else [], textures.MaterialLayers.SPECULAR_MASK),
-                2: ([node_calc_spec.inputs['B']] if has_legacy_specular else [], textures.MaterialLayers.SPECULAR_REFLECTION),
-                3: ([node_final.inputs['Emission Strength']], textures.MaterialLayers.SELF_ILLUMUNATION_MASK),
-                4: ([node_final.inputs['Alpha']], textures.MaterialLayers.OPACITY),
-                5: [[], None],  # Unused
-                6: [[node_final.inputs['Emission Color']], textures.MaterialLayers.SELF_ILLUMUNATION_COLOR],  # TODO Probably emission color
+            layer = {
+                0: materials.MaterialLayers.DIFFUSE,
+                1: materials.MaterialLayers.SPECULAR_MASK,
+                2: materials.MaterialLayers.SPECULAR_REFLECTION,
+                3: materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
+                4: materials.MaterialLayers.OPACITY,
+                5: None,  # Unused
+                6: materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,  # TODO Probably emission color
             }[channel_idx]
-            if node_label is None:
+            image = loaded_textures.get(texture_name)
+            if image is None:
+                self.messages.append(('WARNING', f'Material "{material_name}": cannot find {layer.value} texture ("{texture_name}")'))
                 continue
-            node_tex = created_tex_nodes.get(texture_name)
-            if not node_tex:
-                node_tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
-                node_image = loaded_textures.get(texture_name)
-                if node_image is None:
-                    self.messages.append(('WARNING', f'Material "{material_name}": cannot find {node_label.value} texture ("{texture_name}")'))
-                    continue
-                node_tex.image = node_image
-                node_tex.location = -430, node_final.location[1] - 320 * len(created_tex_nodes)
-                node_tex.label = node_label
-                created_tex_nodes[texture_name] = node_tex
-            if channel_idx == 2:
-                node_global_to_camera = mat.node_tree.nodes.new('ShaderNodeVectorTransform')
-                node_global_to_camera.convert_to = 'CAMERA'
-                node_global_to_camera.location = -600, -200
-                links.new(uv_vector, node_global_to_camera.inputs['Vector'])
-                node_fix_reflect = mat.node_tree.nodes.new('ShaderNodeMapping')
-                node_fix_reflect.label = 'Rotate reflection vector'
-                node_fix_reflect.vector_type = 'VECTOR'
-                node_fix_reflect.inputs['Rotation'].default_value = math.pi, 0, 0
-                node_fix_reflect.location = -600, -400
-                links.new(node_global_to_camera.outputs[0], node_fix_reflect.inputs['Vector'])
-                links.new(node_fix_reflect.outputs[0], node_tex.inputs['Vector'])
-            else:
-                links.new(uv_vector, node_tex.inputs['Vector'])
-            if channel_idx in (0, 4):
-                links.new(node_tex.outputs['Alpha'], node_calc_alpha.inputs[1])
-            if channel_idx != 4:
-                for i in inputs:
-                    links.new(node_tex.outputs[0], i)
-            if channel_idx == 1 and not has_legacy_specular:
-                correct_spec = mat.node_tree.nodes.new('ShaderNodeGamma')
-                correct_spec.inputs['Gamma'].default_value = 0.4545
-                correct_spec.location = -150, node_tex.location[1] - 200
-                links.new(node_tex.outputs[0], correct_spec.inputs['Color'])
-                links.new(correct_spec.outputs[0], node_final.inputs['Metallic'])
+            material_data.channel_images[layer] = image
 
-        if has_specular:
-            links.new(node_calc_spec.outputs['Result'], node_final.inputs['Base Color'])
-
-        self.created_materials[material_path] = mat
         if self.wtp_load_enabled:
             for channel in channels:
                 if channel['idx'] != 0:
@@ -310,29 +221,27 @@ class WhmLoader:
                 if not teamcolor_data:
                     self.messages.append(('DEBUG', f'Cannot find {teamcolor_path}'))
                 else:
-                    self.load_wtp(open_reader(teamcolor_data), material_path, mat, uv_vector)
+                    self.load_wtp(open_reader(teamcolor_data), material_path, material_data)
                 break
+        materials.setup_material(mat, material_data, self.wtp_load_enabled)
+        self.created_materials[material_path] = mat
         return mat
 
-    def load_wtp(self, reader: ChunkReader, material_path: str, material, uv_vector):
+    def load_wtp(self, reader: ChunkReader, material_path: str, material_data: materials.MaterialInfo):
         reader.skip_relic_chunky()
         current_chunk = reader.read_header('FOLDTPAT')
-        loaded_textures = {}
         current_chunk = reader.read_header('DATAINFO')
-        width, height = reader.read_struct('<2L')
+        default_teamcolor_image_size = reader.read_struct('<2L')
         layer_names = {
-            0: textures.TeamcolorLayers.PRIMARY,
-            1: textures.TeamcolorLayers.SECONDARY,
-            2: textures.TeamcolorLayers.TRIM,
-            3: textures.TeamcolorLayers.WEAPONS,
-            4: textures.TeamcolorLayers.EYES,
-            5: textures.TeamcolorLayers.DIRT,
-            -1: textures.TeamcolorLayers.DEFAULT,
+            0: materials.TeamcolorLayers.PRIMARY,
+            1: materials.TeamcolorLayers.SECONDARY,
+            2: materials.TeamcolorLayers.TRIM,
+            3: materials.TeamcolorLayers.WEAPONS,
+            4: materials.TeamcolorLayers.EYES,
+            5: materials.TeamcolorLayers.DIRT,
+            -1: materials.TeamcolorLayers.DEFAULT,
         }
         material_name = pathlib.Path(material_path).name
-        default_image_size = width, height
-        badge_data = None
-        banner_data = None
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'DATAPTLD':
@@ -341,13 +250,13 @@ class WhmLoader:
                         filename = f'{material_name}_{layer_names[layer_in].value}.tga'
                         with open(f'{tmpdir}/{filename}', 'wb') as f:
                             textures.write_tga(
-                                reader.stream, f, data_size, width, height, grayscale=True)
+                                reader.stream, f, data_size, *default_teamcolor_image_size, grayscale=True)
                         image = bpy.data.images.load(f.name)
                         image = utils.flip_image_y(image)
                         image.pack()
                         image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / filename)
                         image.use_fake_user = True
-                        loaded_textures[layer_names[layer_in]] = image
+                        material_data.teamcolor_images[layer_names[layer_in]] = image
                 case 'FOLDIMAG':
                     current_chunk = reader.read_header('DATAATTR')
                     image_format, width, height, num_mips = reader.read_struct('<4L')
@@ -363,248 +272,20 @@ class WhmLoader:
                         image.pack()
                         image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / filename)
                         image.use_fake_user = True
-                        loaded_textures[layer_names[layer_in]] = image
+                        material_data.teamcolor_images[layer_names[layer_in]] = image
                 case 'DATAPTBD':  # badge - 64 by 64
                     badge_data = reader.read_struct('<4f')
+                    material_data.badge_position = badge_data[:2]
+                    material_data.badge_size = badge_data[2:]
                 case 'DATAPTBN':  # banner - 96 by 64
                     banner_data = reader.read_struct('<4f')
+                    material_data.banner_position = banner_data[:2]
+                    material_data.banner_size = banner_data[2:]
                 case _:
                     self.messages.append(('INFO', f'Unknown .wtp chunk {current_chunk.typeid} ({material_path})'))
                     reader.skip(current_chunk.size)
-
-        links = material.node_tree.links
-        common_node_pos_x, common_node_pos_y = -600, 3100
-        aply_teamcolor = material.node_tree.nodes.new('ShaderNodeGroup')
-        aply_teamcolor.node_tree = self.create_teamcolor_group()
-        aply_teamcolor.location = common_node_pos_x + 600, common_node_pos_y - 600
-        created_tex_nodes = {}
-        for layer_name in layer_names.values():
-            node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
-            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
-            created_tex_nodes[layer_name] = node_tex
-            if layer_name in loaded_textures:
-                node_tex.image = loaded_textures[layer_name]
-            else:
-                node_tex.hide = True
-                node_tex.image = self.default_image
-            node_tex.location = node_pos_x + 200, node_pos_y
-            node_tex.label = f'color_layer_{layer_name.value}'
-            links.new(uv_vector, node_tex.inputs['Vector'])
-            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name.value}_{"value" if layer_name != textures.TeamcolorLayers.DEFAULT else "color"}'])
-
-        img_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
-        img_size_node.inputs['X'].default_value = default_image_size[0]
-        img_size_node.inputs['Y'].default_value = default_image_size[1]
-        img_size_node.label = 'color_layer_size'
-        img_size_node.location = common_node_pos_x - 300, common_node_pos_y - 290 * len(created_tex_nodes) + 200
-
-        flip_texture_node = material.node_tree.nodes.new('ShaderNodeMapping')
-        flip_texture_node.label = 'Flip'
-        flip_texture_node.location = common_node_pos_x - 450, common_node_pos_y - 290 * len(created_tex_nodes) + 200
-        flip_texture_node.inputs['Location'].default_value = (0, 1, 0)
-        flip_texture_node.inputs['Scale'].default_value = (1, -1, 1)
-        links.new(uv_vector, flip_texture_node.inputs['Vector'])
-
-        for layer_name, layer_data in [
-            ('badge', badge_data),
-            ('banner', banner_data),
-        ]:
-            if layer_data is None:
-                node_name = f'UNUSED_{layer_name}'
-                layer_data = 0, 0, 0, 0
-                default_image = self.default_image
-            else:
-                node_name = layer_name
-                default_image = None
-            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 290 * len(created_tex_nodes)
-            data_pos_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
-            data_pos_node.inputs['X'].default_value = layer_data[0]
-            data_pos_node.inputs['Y'].default_value = layer_data[1]
-            data_pos_node.location = node_pos_x - 300, node_pos_y
-            data_pos_node.label = f'{layer_name}_position'
-
-            data_size_node = material.node_tree.nodes.new('ShaderNodeCombineXYZ')
-            data_size_node.inputs['X'].default_value = layer_data[2]
-            data_size_node.inputs['Y'].default_value = layer_data[3]
-            data_size_node.location = node_pos_x - 300, node_pos_y - 150
-            data_size_node.label = f'{layer_name}_display_size'
-
-            calc_pos_node = material.node_tree.nodes.new('ShaderNodeVectorMath')
-            calc_pos_node.operation = 'DIVIDE'
-            calc_pos_node.location = node_pos_x - 150, node_pos_y
-            links.new(data_pos_node.outputs[0], calc_pos_node.inputs[0])
-            links.new(img_size_node.outputs[0], calc_pos_node.inputs[1])
-
-            calc_scale_node = material.node_tree.nodes.new('ShaderNodeVectorMath')
-            calc_scale_node.operation = 'DIVIDE'
-            calc_scale_node.location = node_pos_x - 150, node_pos_y - 150
-            links.new(data_size_node.outputs[0], calc_scale_node.inputs[0])
-            links.new(img_size_node.outputs[0], calc_scale_node.inputs[1])
-
-            scale_node = material.node_tree.nodes.new('ShaderNodeMapping')
-            scale_node.vector_type = 'TEXTURE'
-            scale_node.location = node_pos_x, node_pos_y
-            links.new(flip_texture_node.outputs[0], scale_node.inputs['Vector'])
-            links.new(calc_pos_node.outputs[0], scale_node.inputs['Location'])
-            links.new(calc_scale_node.outputs[0], scale_node.inputs['Scale'])
-
-            node_tex = material.node_tree.nodes.new('ShaderNodeTexImage')
-            created_tex_nodes[layer_name] = node_tex
-            # node_tex.hide = True
-            node_tex.extension = 'CLIP'
-            node_tex.location = node_pos_x + 200, node_pos_y
-            node_tex.label = node_name
-            if default_image is not None:
-                node_tex.image = default_image
-                node_tex.hide = True
-            links.new(scale_node.outputs[0], node_tex.inputs['Vector'])
-            links.new(node_tex.outputs[0], aply_teamcolor.inputs[f'{layer_name}_color'])
-            links.new(node_tex.outputs[1], aply_teamcolor.inputs[f'{layer_name}_alpha'])
-
-        if textures.TeamcolorLayers.DEFAULT in loaded_textures:
-            for node in material.node_tree.nodes:
-                if node.label == 'Apply spec':
-                    links.new(aply_teamcolor.outputs[0], node.inputs['A'])
-                    break
-            else:
-                links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Base Color'])
-            links.new(aply_teamcolor.outputs[0], material.node_tree.nodes[0].inputs['Emission Color'])
-        else:
+        if materials.TeamcolorLayers.DEFAULT not in material_data.teamcolor_images:
             self.messages.append(('WARNING', f'Material {material_path} is missing the default layer'))
-
-    def create_teamcolor_group(self, name: str = 'ApplyTeamcolor'):
-        if name in bpy.data.node_groups:
-            return bpy.data.node_groups[name]
-
-        group = bpy.data.node_groups.new(name, 'ShaderNodeTree')
-
-        interface = group.interface
-
-        interface.new_socket(
-            name='default_color',
-            in_out='INPUT',
-            socket_type='NodeSocketColor',
-        )
-        interface.new_socket(
-            name='dirt_value',
-            in_out='INPUT',
-            socket_type='NodeSocketFloat',
-        )
-
-        for c in sorted(self.TEAMCOLORABLE_LAYERS):
-            panel = interface.new_panel(name=c, default_closed=True)
-            interface.new_socket(
-                name=f'{c.value}_color',
-                in_out='INPUT',
-                socket_type='NodeSocketColor',
-                parent=panel,
-            )
-            interface.new_socket(
-                name=f'{c.value}_value',
-                in_out='INPUT',
-                socket_type='NodeSocketFloat',
-                parent=panel,
-            )
-        for c in self.TEAMCOLORABLE_IMAGES:
-            panel = interface.new_panel(name=c, default_closed=True)
-            interface.new_socket(
-                name=f'{c}_color',
-                in_out='INPUT',
-                socket_type='NodeSocketColor',
-                parent=panel,
-            )
-            interface.new_socket(
-                name=f'{c}_alpha',
-                in_out='INPUT',
-                socket_type='NodeSocketFloat',
-                parent=panel,
-            )
-
-        interface.new_socket(
-            name='result',
-            in_out='OUTPUT',
-            socket_type='NodeSocketColor',
-        )
-
-        group_inputs = group.nodes.new('NodeGroupInput')
-        group_inputs.location = -650, 0
-
-        group_outputs = group.nodes.new('NodeGroupOutput')
-        group_outputs.location = 400, 0
-
-        links = group.links
-
-        prev_color_output = None
-        common_node_pos_x, common_node_pos_y = -100, 500
-        for idx, layer_name in enumerate(sorted(self.TEAMCOLORABLE_LAYERS)):
-            node_pos_x, node_pos_y = common_node_pos_x, common_node_pos_y - 220 * idx
-
-            correct_color = group.nodes.new('ShaderNodeGamma')
-            correct_color.inputs['Gamma'].default_value = 0.4545
-            correct_color.location = node_pos_x - 200, node_pos_y - 70
-            links.new(group_inputs.outputs[f'{layer_name.value}_color'], correct_color.inputs['Color'])
-
-            correct_mask = group.nodes.new('ShaderNodeGamma')
-            correct_mask.inputs['Gamma'].default_value = 0.4545
-            correct_mask.location = node_pos_x - 200, node_pos_y + 30
-            links.new(group_inputs.outputs[f'{layer_name.value}_value'], correct_mask.inputs['Color'])
-
-            layer_color_node = group.nodes.new('ShaderNodeMixRGB')
-            layer_color_node.blend_type = 'OVERLAY'
-            layer_color_node.inputs['Fac'].default_value = 1
-            layer_color_node.label = layer_name
-            layer_color_node.location = node_pos_x, node_pos_y
-
-            links.new(correct_mask.outputs[0], layer_color_node.inputs['Color1'])
-            links.new(correct_color.outputs[0], layer_color_node.inputs['Color2'])
-            if prev_color_output is None:
-                prev_color_output = layer_color_node.outputs[0]
-            else:
-                node_mix = group.nodes.new('ShaderNodeMixRGB')
-                node_mix.blend_type = 'ADD'
-                node_mix.inputs['Fac'].default_value = 1
-                node_mix.location = node_pos_x + 200, node_pos_y
-                links.new(prev_color_output, node_mix.inputs['Color1'])
-                links.new(layer_color_node.outputs['Color'], node_mix.inputs['Color2'])
-                prev_color_output = node_mix.outputs[0]
-
-        idx += 1
-        node_pos_x, node_pos_y = common_node_pos_x + 200, common_node_pos_y - 220 * idx
-        correct_color_dirt = group.nodes.new('ShaderNodeGamma')
-        correct_color_dirt.inputs['Gamma'].default_value = 0.4545
-        correct_color_dirt.location = node_pos_x - 200, node_pos_y - 70
-        links.new(group_inputs.outputs['default_color'], correct_color_dirt.inputs['Color'])
-
-        correct_mask_dirt = group.nodes.new('ShaderNodeGamma')
-        correct_mask_dirt.inputs['Gamma'].default_value = 0.4545
-        correct_mask_dirt.location = node_pos_x - 200, node_pos_y + 30
-        links.new(group_inputs.outputs['dirt_value'], correct_mask_dirt.inputs['Color'])
-
-        node_mix_dirt = group.nodes.new('ShaderNodeMixRGB')
-        node_mix_dirt.blend_type = 'ADD'
-        node_mix_dirt.location = node_pos_x, node_pos_y
-        links.new(correct_mask_dirt.outputs[0], node_mix_dirt.inputs['Fac'])
-        links.new(prev_color_output, node_mix_dirt.inputs['Color1'])
-        links.new(correct_color_dirt.outputs[0], node_mix_dirt.inputs['Color2'])
-
-        combined_color = group.nodes.new('ShaderNodeGamma')
-        combined_color.inputs['Gamma'].default_value = 2.2
-        combined_color.location = node_pos_x + 200, node_pos_y
-        links.new(node_mix_dirt.outputs[0], combined_color.inputs['Color'])
-        prev_color_output = combined_color.outputs[0]
-
-        for layer_name in self.TEAMCOLORABLE_IMAGES:
-            idx += 1
-            node_mix = group.nodes.new('ShaderNodeMixRGB')
-            node_mix.blend_type = 'MIX'
-            node_mix.location = common_node_pos_x + 200, common_node_pos_y - 220 * idx
-            links.new(group_inputs.outputs[f'{layer_name}_alpha'], node_mix.inputs['Fac'])
-            links.new(prev_color_output, node_mix.inputs['Color1'])
-            links.new(group_inputs.outputs[f'{layer_name}_color'], node_mix.inputs['Color2'])
-            prev_color_output = node_mix.outputs[0]
-
-        group.links.new(prev_color_output, group_outputs.inputs['result'])
-        return group
 
     def CH_DATASKEL(self, reader: ChunkReader, xref: bool = False):  # Chunk Handler - Skeleton Data
         # ---< READ BONES >---
@@ -897,7 +578,7 @@ class WhmLoader:
                 keys_tex = reader.read_one('<l')  # -- Read Number Of Texture Keys
                 material = self.created_materials.get(obj_name)
                 if material is not None:
-                    mapping_node = utils.get_uv_offset_node(material)
+                    mapping_node = materials.get_uv_offset_node(material)
                     expected_id = 'NT' + material.name
                     for slot in animation.slots:
                         if slot.identifier == expected_id:
@@ -1399,31 +1080,33 @@ class WhmLoader:
             text = f.read()
             teamcolor = lua.decode(f'{{{text}}}')
         res = {}
-        for k in self.TEAMCOLORABLE_LAYERS:
+        for k in materials.TEAMCOLORABLE_LAYERS:
             color = teamcolor.get('UnitCustomization', {}).get(k.title())
             if color:
                 res[k] = mathutils.Color([color[i] / 255. for i in 'rgb'])
-        for k in self.TEAMCOLORABLE_IMAGES:
-            path = teamcolor.get('LocalInfo', {}).get(f'{k}_name')
+        for k in materials.TEAMCOLOR_IMAGES:
+            path = teamcolor.get('LocalInfo', {}).get(f'{k.value}_name')
             if path is None:
                 continue
-            path = f'art/{k}s/{path}.tga'
+            path = f'art/{k.value}s/{path}.tga'
             data = self.layout.find(path)
             if not data:
-                self.messages.append(('WARNING', f'Cannot find {k} {path}'))
+                self.messages.append(('WARNING', f'Cannot find {k.value} {path}'))
                 continue
             if isinstance(data, DirectoryPath):
                 path = data.full_path
             res[k] = path
         return res
 
-    def apply_teamcolor(self, teamcolor: dict):
-        color_node_names = {f'color_{i}' for i in self.TEAMCOLORABLE_LAYERS}
-        images = {}
+    def apply_teamcolor(self, teamcolor_dict: dict):
+        teamcolor = materials.TeamcolorInfo()
+        for layer in materials.TEAMCOLORABLE_LAYERS:
+            if layer in teamcolor_dict:
+                teamcolor.colors[layer] = teamcolor_dict[layer]
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = pathlib.Path(tmpdir)
-            for key in self.TEAMCOLORABLE_IMAGES:
-                if (img_path := teamcolor.get(key)) is None:
+            for key in materials.TEAMCOLOR_IMAGES:
+                if (img_path := teamcolor_dict.get(key.value)) is None:
                     continue
                 data_path = pathlib.Path(img_path)
                 if not data_path.exists():
@@ -1432,25 +1115,13 @@ class WhmLoader:
                     continue
                 tmpfile = tmpdir / pathlib.Path(img_path).name
                 tmpfile.write_bytes(data_path.read_bytes())
-                images[key] = image = bpy.data.images.load(str(tmpfile))
+                teamcolor.images[key] = image = bpy.data.images.load(str(tmpfile))
                 image.pack()
                 image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / tmpfile.name)
         for mat in bpy.data.materials:
             if mat.node_tree is None:
                 continue
-            for node in mat.node_tree.nodes:
-                if node.bl_idname == 'ShaderNodeValToRGB' and node.label in color_node_names:
-                    key = node.label[len('color_'):]
-                    if teamcolor.get(key) is None:
-                        continue
-                    node.color_ramp.elements[-1].color[:3] = teamcolor[key].from_srgb_to_scene_linear()[:3]
-                if node.bl_idname == 'ShaderNodeTexImage' and node.label in self.TEAMCOLORABLE_IMAGES and images.get(node.label) is not None:
-                    node.image = images[node.label]
-                if node.bl_idname == 'ShaderNodeGroup' and node.node_tree == bpy.data.node_groups.get('ApplyTeamcolor', None):
-                    for c in self.TEAMCOLORABLE_LAYERS:
-                        if teamcolor.get(c, None) is None:
-                            continue
-                        node.inputs[f'{c.value}_color'].default_value[:3] = teamcolor[c].copy().from_srgb_to_scene_linear()  # TODO Investigate why the default color scheme doesn't apply without copy()
+            materials.apply_teamcolor(mat, teamcolor)
 
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):
