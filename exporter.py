@@ -1159,6 +1159,7 @@ class Exporter:
                 obj.animation_data.action = action
                 slot_owers.setdefault(obj.animation_data.action_slot, []).append(obj)
                 obj.animation_data.action = orig_action
+        mat_uv_nodes = {mat.node_tree: materials.get_uv_offset_node(mat) for mat in bpy.data.materials if mat.node_tree is not None}
         for action in bpy.data.actions:
             anim_sections = collections.defaultdict(dict)
             prop_fcurves = collections.defaultdict(dict)
@@ -1203,16 +1204,17 @@ class Exporter:
                             if attr is not None:
                                 prop_group = attr
                             else:
+                                uv_node = mat_uv_nodes.get(anim_root)
                                 prop_group = fcurve.data_path
                                 if prop_group == 'color' and fcurve.array_index == 3:
                                     prop_group = 'visibility'
-                                elif prop_group.startswith('nodes["Mapping"].inputs[1]') or prop_group.startswith('nodes["UV offset"].inputs[1]'):
+                                elif uv_node is not None and prop_group.startswith(f'nodes["{uv_node.name}"].inputs[1]'):
                                     for m in bpy.data.materials:
                                         if m.node_tree == anim_root:
                                             anim_root = m
                                             break
                                     prop_group = 'uv_offset'
-                                elif prop_group.startswith('nodes["Mapping"].inputs[3]') or prop_group.startswith('nodes["UV offset"].inputs[3]'):
+                                elif uv_node is not None and prop_group.startswith(f'nodes["{uv_node.name}"].inputs[3]'):
                                     prop_group = 'uv_tiling'
                                     for m in bpy.data.materials:
                                         if m.node_tree == anim_root:
