@@ -535,13 +535,17 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
             context.active_object.animation_data_create()
         anim_data = context.active_object.animation_data
         orig_action = anim_data.action
-        orig_mode = context.mode
         bpy.ops.object.mode_set(mode='POSE')
         for action_idx, action in enumerate(actions_to_bake):
             anim_data.action = action
             for bone in context.active_object.pose.bones:
                 bone.matrix_basis.identity()
-            last_frame = int(action.frame_end)
+            if not action.use_frame_range:
+                action.use_frame_range = True
+                last_frame = int(action.frame_end)
+                action.use_frame_range = False
+            else:
+                last_frame = int(action.frame_end)
             frames = list(range(int(action.frame_start), last_frame + 1, self.step))
             if frames[-1] != last_frame:
                 frames.append(last_frame)
@@ -560,7 +564,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
                     do_clean=True,
                     do_location=True,
                     do_rotation=True,
-                    do_scale=True,
+                    do_scale=False,
                     do_bbone=False,
                     do_custom_props=False),
             )
@@ -580,7 +584,7 @@ class DOW_OT_batch_bake_actions(bpy.types.Operator):
                     orig_fcurve.keyframe_points.insert(*k.co)
             bpy.data.actions.remove(baked, do_unlink=True)
         anim_data.action = orig_action
-        bpy.ops.object.mode_set(mode=orig_mode)
+        bpy.ops.object.mode_set(mode='POSE', toggle=True)
         return {'FINISHED'}
 
     def invoke(self, context, event):

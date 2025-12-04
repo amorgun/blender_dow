@@ -811,6 +811,7 @@ class Exporter:
             if not bones:
                 return
             delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z')
+            world_scale = self.armature_obj.matrix_world.to_scale()
             for bone_idx, (bone, level) in enumerate(iter_bones(bone_tree, -1)):
                 with self.start_chunk(writer, ExportFormat.SGM, 'DATABONE', name=bone.name):
                     if self.format is ExportFormat.WHM:
@@ -820,8 +821,19 @@ class Exporter:
                         parent_mat = self.bone_transforms[bone.parent]
                     else:
                         parent_mat = self.armature_obj.matrix_world.inverted() @ mathutils.Matrix.Rotation(math.radians(90.0), 4, 'X')
+                    # if bone.parent:
+                    #     pose_mat = bone.convert_local_to_pose(
+                    #         matrix=mathutils.Matrix.Identity(4),
+                    #         matrix_local=bone.matrix_local @ delta.inverted(),
+                    #         parent_matrix=mathutils.Matrix.Identity(4),
+                    #         parent_matrix_local=bone.parent.matrix_local @ delta.inverted(),
+                    #     )
+                    # else:
+                    #     pose_mat = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'X') @ self.armature_obj.matrix_world @ bone.matrix_local @ delta.inverted()
                     relative_matrix = parent_mat.inverted() @ bone.matrix_local @ delta.inverted()
                     loc, rot, _ = relative_matrix.decompose()
+                    if bone.parent:
+                        loc *= world_scale
                     writer.write_struct('<3f', -loc.x, loc.y, loc.z)
                     writer.write_struct('<4f', rot.x, -rot.y, -rot.z, rot.w)
                     self.bone_to_idx[bone.name] = bone_idx
@@ -1087,6 +1099,7 @@ class Exporter:
 
         coord_transform = mathutils.Matrix([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]).to_4x4()
         coord_transform_inv = coord_transform.inverted()
+        world_scale = self.armature_obj.matrix_world.to_scale()
 
         with self.start_chunk(writer, ExportFormat.WHM, 'DATAMARK'):
             if self.format is ExportFormat.WHM:
@@ -1110,6 +1123,8 @@ class Exporter:
                         continue
                     transform = coord_transform @ parent_mat.inverted() @ marker.matrix_local @ coord_transform_inv
                     loc, rot, _ = transform.decompose()
+                    if marker.parent:
+                        loc *= world_scale
                     rot = rot.to_matrix().transposed()
                     for row_idx in range(3):
                         writer.write_struct('<3f', *rot[row_idx])
@@ -1160,6 +1175,7 @@ class Exporter:
                 slot_owers.setdefault(obj.animation_data.action_slot, []).append(obj)
                 obj.animation_data.action = orig_action
         mat_uv_nodes = {mat.node_tree: materials.get_uv_offset_node(mat) for mat in bpy.data.materials if mat.node_tree is not None}
+        world_scale = self.armature_obj.matrix_world.to_scale() if self.armature_obj is not None else 1
         for action in bpy.data.actions:
             anim_sections = collections.defaultdict(dict)
             prop_fcurves = collections.defaultdict(dict)
@@ -1234,7 +1250,13 @@ class Exporter:
             with writer.start_chunk('FOLDANIM', name=action.name):
                 with self.start_chunk(writer, ExportFormat.WHM, 'DATADATA', name=action.name), \
                     self.start_chunk(writer, ExportFormat.SGM, 'FOLDDATA', name=action.name):
-                    frame_end = action.frame_end or max_fcurve_frame
+                    if not action.use_frame_range:
+                        action.use_frame_range = True
+                        frame_end = action.frame_end
+                        action.use_frame_range = False
+                    else:
+                        frame_end = action.frame_end
+                    frame_end = frame_end or max_fcurve_frame
                     with self.start_chunk(writer, ExportFormat.SGM, 'DATAINFO'):
                         writer.write_struct('<l', int(frame_end) + 1)
                         writer.write_struct('<f', (frame_end + 1) / action.get('fps', 30))
@@ -1282,7 +1304,10 @@ class Exporter:
                                     rot.normalize()
                                 frame_matrix = mathutils.Matrix.LocRotScale(loc, rot, None)
                                 relative_matrix = parent_mat.inverted() @ bone.matrix_local @ frame_matrix @ delta.inverted()
-                                frame_data.append(relative_matrix.decompose())
+                                parts = list(relative_matrix.decompose())
+                                if bone.parent:
+                                    parts[0] *= world_scale
+                                frame_data.append(parts)
 
                             writer.write_struct('<l', len(all_frames))
                             for frame, (loc, rot, _) in zip(all_frames, frame_data):
