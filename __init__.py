@@ -156,7 +156,12 @@ def get_preferences(context) -> AddonPreferences:
 
 
 def save_args(storage, op, op_id: str, *arg_names):
+    defaults = {
+        k: getattr(v, 'default', None)
+        for k, v in bpy.ops._op_get_rna_type(op.bl_idname).properties.items()
+    }
     args = {i: getattr(op, i) for i in arg_names}
+    args = {k: v for k, v in args.items() if v != defaults.get(k)}
     setattr(storage, op_id, json.dumps(args))
 
 
