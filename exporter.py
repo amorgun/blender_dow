@@ -1184,8 +1184,11 @@ class Exporter:
             for slot in action.slots:
                 channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
                 for anim_root in slot_owers.get(slot, []):
-                    if anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'CAMERA':
-                        animated_cameras.append(anim_root)
+                    if anim_root.id_type == 'OBJECT':
+                        if anim_root.data is None:
+                            continue
+                        if anim_root.data.id_type == 'CAMERA':
+                            animated_cameras.append(anim_root)
                     if channelbag is None:
                         continue
                     for fcurve in channelbag.fcurves:
