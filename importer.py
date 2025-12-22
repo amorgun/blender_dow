@@ -107,7 +107,7 @@ class WhmLoader:
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'FOLDTXTR': loaded_textures[current_chunk.name.lower()] = self.CH_FOLDTXTR(reader, current_chunk.name)  # FOLDTXTR - Internal Texture
-                case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, current_chunk, material_path, loaded_textures)
+                case 'FOLDSHDR': material = self.CH_FOLDSHDR(reader, current_chunk, material_path, loaded_textures, full_path=material_path)
                 case _: reader.skip(current_chunk.size)
         return material
 
@@ -160,7 +160,7 @@ class WhmLoader:
             image.use_fake_user = True
         return image
 
-    def CH_FOLDSHDR(self, reader: ChunkReader, header: ChunkHeader, material_path: str, loaded_textures: dict):  # Chunk Handler - Material
+    def CH_FOLDSHDR(self, reader: ChunkReader, header: ChunkHeader, material_path: str, loaded_textures: dict, full_path: str = None):  # Chunk Handler - Material
         reader = reader.read_folder(header)
         channels = []
         specilar_mask_value = 0
@@ -181,12 +181,16 @@ class WhmLoader:
                         'idx': channel_idx,
                         'texture_name': channel_texture_name,
                     })
+                    if channel_idx == 0 and full_path is None:
+                        full_path = channel_texture_name
 
         if material_path in self.created_materials:
             return self.created_materials[material_path]
         material_name = pathlib.Path(material_path).name
         mat = bpy.data.materials.new(name=material_name)
-        props.setup_property(mat, 'full_path', material_path)
+        if not full_path:
+            full_path = material_path
+        props.setup_property(mat, 'full_path', full_path)
         mat.use_nodes = True
 
         material_data = materials.MaterialInfo(
@@ -1028,7 +1032,7 @@ class WhmLoader:
         is_de_material = bool(chunk_positions.get('FOLDSTXT', []))
         for current_chunk, pos in chunk_positions.get('FOLDSHDR', []):  # FOLDSHDR - Internal Material
             reader.stream.seek(pos)
-            mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures)
+            mat = self.CH_FOLDSHDR(reader, current_chunk, current_chunk.name, internal_textures, full_path=None if is_de_material else current_chunk.name)
             if not is_de_material:
                 props.setup_property(mat, 'internal', True)
 
