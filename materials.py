@@ -39,6 +39,7 @@ TEAMCOLORABLE_LAYERS = {
 }
 TEAMCOLOR_IMAGES = {TeamcolorLayers.BADGE, TeamcolorLayers.BANNER}
 
+WHITE = mathutils.Color((1., 1., 1.))
 
 Image = typing.TypeVar('Image')
 Color = typing.TypeVar('Color')
@@ -48,6 +49,7 @@ Color = typing.TypeVar('Color')
 class MaterialInfo:
     channel_images: dict[MaterialLayers, Image] = dataclasses.field(default_factory=dict)
     teamcolor_images: dict[TeamcolorLayers, Image] = dataclasses.field(default_factory=dict)
+    default_color: Color = None
     default_specilar_mask_value: float = 0
     roughness_value: float = 0
     banner_size: tuple[int, int] = 64, 64
@@ -112,6 +114,9 @@ def setup_material(
     node_final.inputs['Roughness'].default_value = material_data.roughness_value
     if material_data.roughness_value > 0:
         node_final.inputs['Metallic'].default_value = material_data.default_specilar_mask_value
+    if material_data.default_color:
+        default_color = (material_data.default_color + material_data.default_specilar_mask_value * WHITE) / (1 + material_data.default_specilar_mask_value)
+        node_final.inputs['Base Color'].default_value[:3] = default_color.from_srgb_to_scene_linear()
     node_final.inputs['Specular IOR Level'].default_value = 0
     node_final.location = 150, 400
     mat.node_tree.nodes[1].location = node_final.location[0] + 400, node_final.location[1]
@@ -542,6 +547,9 @@ def extract_material_info(mat, use_random_diffuse_fallback: bool = True) -> Mate
         if node.bl_idname == 'ShaderNodeBsdfPrincipled':
             result.roughness_value = node.inputs['Roughness'].default_value
             result.default_specilar_mask_value = node.inputs['Metallic'].default_value
+            default_color = mathutils.Color(node.inputs['Base Color'].default_value[:3]).from_scene_linear_to_srgb()
+            initial_default_color = default_color * (1 + result.default_specilar_mask_value) - WHITE * result.default_specilar_mask_value
+            result.default_color = mathutils.Color([max(i, 0) for i in initial_default_color])
             break
 
     if use_random_diffuse_fallback and MaterialLayers.DIFFUSE not in result.channel_images:

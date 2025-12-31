@@ -164,13 +164,16 @@ class WhmLoader:
         reader = reader.read_folder(header)
         channels = []
         specilar_mask_value = 0
+        default_color = None
         for current_chunk in reader.iter_chunks():
             match current_chunk.typeid:
                 case 'DATAINFO':
                     six_, seven_, roughness_data, one_ = reader.read_struct('<2LfLx')
                 case 'DATACHAN':
                     channel_idx, method, *colour_mask = reader.read_struct('<2l4B')
-                    if channel_idx == 1:
+                    if channel_idx == 0:
+                        default_color = [i for i in colour_mask[2::-1]]
+                    elif channel_idx == 1:
                         specilar_mask_value = sum(colour_mask[:3]) // 3
                     channel_texture_name = reader.read_str()
                     num_coords = reader.read_one('<4x l 4x')
@@ -194,6 +197,7 @@ class WhmLoader:
         mat.use_nodes = True
 
         material_data = materials.MaterialInfo(
+            default_color=mathutils.Color(i / 255. for i in default_color),
             roughness_value=1 / (math.log2(roughness_data) + 1) if roughness_data > 1 else 0,
             default_specilar_mask_value=specilar_mask_value / 255.,
         )
@@ -870,7 +874,8 @@ class WhmLoader:
             split_normals = []
             face_uv_data = []
             seen_faces = set()
-            for face in old_face_array:
+            new_matid_array = []
+            for face_idx, face in enumerate(old_face_array):
                 new_face = [idx2merged[i] for i in face]
                 if not (new_face[0] != new_face[1] != new_face[2] != new_face[0]):
                     continue
@@ -881,6 +886,8 @@ class WhmLoader:
                 face_array.append(new_face)
                 split_normals.extend(normal_array[i] for i in face)
                 face_uv_data.extend(f for i in face for f in uv_array[i])
+                new_matid_array.append(matid_array[face_idx])
+            matid_array = new_matid_array
             del normal_array
             del uv_array
         else:

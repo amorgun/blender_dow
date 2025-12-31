@@ -287,6 +287,7 @@ class Exporter:
             return
 
         mat_path = pathlib.PurePosixPath(self.get_material_path(mat))
+        mat_path = mat_path.with_name(mat_path.name.replace('.', '_'))
         mat_info = materials.extract_material_info(mat)
         if (self.material_export_format == MaterialExportFormat.RSH
             and materials.MaterialLayers.DIFFUSE not in mat_info.channel_images):
@@ -328,7 +329,7 @@ class Exporter:
                 img = mat_info.channel_images.get(materials.MaterialLayers.DIFFUSE)
                 if img is not None:
                     mat_path = img.dow_export_path.strip() or mat_path
-                mat_name = pathlib.Path(mat_path).name
+                mat_name = pathlib.Path(mat_path).name.replace('.', '_')
                 material_images = {}
                 for layer, image in mat_info.channel_images.items():
                     if image is None:
@@ -360,6 +361,7 @@ class Exporter:
                         if mat_info.roughness_value != 0:
                             roughness_val = 2 ** (max(0.1, min(10, round(1 / mat_info.roughness_value, 2) - 1)))
                         writer.write_struct('<2LfLx', 6, 7, roughness_val, 1)
+                    default_color = [int(255 * i) for i in mat_info.default_color or []] or [0] * 3
                     for channel_idx, key in enumerate([
                         materials.MaterialLayers.DIFFUSE,
                         materials.MaterialLayers.SPECULAR_MASK,
@@ -372,7 +374,7 @@ class Exporter:
                         with writer.start_chunk('DATACHAN'):
                             has_data = material_images.get(key) is not None
                             colour_mask = {
-                                materials.MaterialLayers.DIFFUSE: [255] * 4 if has_data else [0, 0, 0, 255],
+                                materials.MaterialLayers.DIFFUSE: [255] * 4 if has_data else [*[i for i in default_color[::-1]], 255],
                                 materials.MaterialLayers.OPACITY: [255] * 4,
                                 materials.MaterialLayers.SPECULAR_MASK: [int(255 * mat_info.default_specilar_mask_value)] * 3 + [255],
                                 materials.MaterialLayers.SELF_ILLUMUNATION_COLOR: [255] * 4,
