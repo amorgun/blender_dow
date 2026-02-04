@@ -633,10 +633,10 @@ class DOW_OT_make_material_animated(bpy.types.Operator):
 
 
 class DOW_OT_setup_material(bpy.types.Operator):
-    """Recreate material nodes from scratch"""
+    """Re-create material nodes from scratch"""
 
     bl_idname = 'object.dow_setup_material'
-    bl_label = 'Create node tree'
+    bl_label = 'Re-create node tree'
     bl_options = {'REGISTER', 'UNDO'}
 
     layers_mode: bpy.props.EnumProperty(
@@ -670,6 +670,7 @@ class DOW_OT_setup_material(bpy.types.Operator):
         teamcolor_info = materials.extract_teamcolor_info(context.material)
         context.material.use_nodes = True
         node_tree = context.material.node_tree
+        node_tree.rename(context.material.name)
         links = node_tree.links
         node_tree.nodes.clear()
         node_final = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
@@ -886,8 +887,9 @@ class DowTools(bpy.types.Panel):
                         parent_anim_data = get_animation_data_with_action(parent)
                         if parent_anim_data is not None:
                             current_action = parent_anim_data.action
+                layout.row().label(text='Action')
+                layout.row().template_action(context.active_object, new='action.new', unlink='action.unlink')
                 if current_action is not None:
-                    layout.row().prop(current_action, 'name', text='Action')
                     row = layout.row()
                     row.prop(context.active_object, 'dow_force_invisible')
                     op = row.operator(DOW_OT_batch_configure_invisible.bl_idname, text='', icon='OPTIONS')
@@ -909,9 +911,9 @@ class DowTools(bpy.types.Panel):
         if context.active_pose_bone is not None:
             layout.row().prop(context.active_pose_bone, 'name')
             current_anim_data = get_animation_data_with_action(context.active_object)
+            layout.row().label(text='Action')
+            layout.row().template_action(context.active_object, new='action.new', unlink='action.unlink')
             if current_anim_data is not None:
-                current_action = current_anim_data.action
-                layout.row().prop(current_action, 'name', text='Action')
                 layout.row().prop(context.active_pose_bone, 'dow_stale')
         layout.separator()
         layout.row().prop(context.scene, 'dow_update_animations')
@@ -991,10 +993,28 @@ class DowMaterialTools(bpy.types.Panel):
             ('internal', 'Internal'),
         ]:
             make_prop_row(layout, mat, prop, display_name=display_name)
-        if (
-            mat.node_tree is None
-            or mat.node_tree.animation_data is None
-        ):
+        is_animated = mat.node_tree is not None and mat.node_tree.animation_data is not None
+        if is_animated:
+            layout.row().label(text='Action')
+            animated_id = mat.node_tree
+            layout.template_action(animated_id, new='action.new', unlink='action.unlink')
+            adt = animated_id.animation_data
+            if not adt or not adt.action:
+                return
+
+            # Only show the slot selector when a layered Action is assigned.
+            if adt.action.is_action_layered:
+                layout.context_pointer_set('animated_id', animated_id)
+                layout.template_search(
+                    adt, 'action_slot',
+                    adt, 'action_suitable_slots',
+                    new='anim.slot_new_for_id',
+                    unlink='anim.slot_unassign_from_id',
+                )
+
+        layout.separator()
+        layout.row().operator(DOW_OT_setup_material.bl_idname)
+        if not is_animated:
             if context.active_object is not None:
                 obj = context.active_object
                 current_actions = []
@@ -1015,14 +1035,10 @@ class DowMaterialTools(bpy.types.Panel):
                     current_actions.append(obj.animation_data.action)
                 except AttributeError:
                     pass
-            layout.separator()
-            layout.row().operator(DOW_OT_setup_material.bl_idname)
             row = layout.row()
             if current_actions:
                 row.context_pointer_set(name='current_action', data=current_actions[0])
             row.operator(DOW_OT_make_material_animated.bl_idname)
-        else:
-            layout.row().label(text='Material is animated')
 
 
 IMAGE_LAYERS = [
