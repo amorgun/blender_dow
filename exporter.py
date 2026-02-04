@@ -1222,6 +1222,7 @@ class Exporter:
                                 continue
                             anim_sections[attr.lower()].setdefault(anim_obj, []).append(fcurve)
                         else:
+                            obj_name = anim_root.name
                             if attr is not None:
                                 prop_group = attr
                             else:
@@ -1232,20 +1233,20 @@ class Exporter:
                                 elif uv_node is not None and prop_group.startswith(f'nodes["{uv_node.name}"].inputs[1]'):
                                     for m in bpy.data.materials:
                                         if m.node_tree == anim_root:
-                                            anim_root = m
+                                            obj_name = m.name
                                             break
                                     prop_group = 'uv_offset'
                                 elif uv_node is not None and prop_group.startswith(f'nodes["{uv_node.name}"].inputs[3]'):
                                     prop_group = 'uv_tiling'
                                     for m in bpy.data.materials:
                                         if m.node_tree == anim_root:
-                                            anim_root = m
+                                            obj_name = m.name
                                             break
                                 elif anim_root.id_type == 'OBJECT' and anim_root.data.id_type == 'CAMERA':
                                     prop_group = f'{anim_root.data.id_type}_{prop_group}'
                                 else:
                                     prop_group = prop_group.lower()
-                            prop_fcurves[prop_group].setdefault(anim_root.name.lower(), []).append(fcurve)
+                            prop_fcurves[prop_group].setdefault(obj_name.lower(), []).append(fcurve)
 
             def get_prop_fcurves(prop: str, obj_name: str) -> list:
                 prop_data = prop_fcurves[prop]

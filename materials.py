@@ -77,9 +77,10 @@ def setup_uv_offset(mat, location_x, location_y):
 
     node_uv_offset = mat.node_tree.nodes.new('ShaderNodeMapping')
     node_uv_offset.label = 'UV offset'
-    node_uv_offset.name = 'Mapping'
-    node_uv_offset.location = location_x + 400, location_y
+    # node_uv_offset.name = f'UV offset {mat.name}'
     node_uv_offset.name = 'UV offset'
+    # node_uv_offset.rename('UV offset')
+    node_uv_offset.location = location_x + 400, location_y
     links.new(node_uv_offset_pre.outputs[0], node_uv_offset.inputs['Vector'])
 
     node_uv_offset_post = mat.node_tree.nodes.new('ShaderNodeMapping')
