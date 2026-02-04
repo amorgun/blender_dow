@@ -876,7 +876,7 @@ class Exporter:
 
                 if single_bone_name is None and (
                     len(vertex_groups) == 0 or all(len(v.groups) == 0 or v.groups[0].weight < 0.001 for v in mesh.vertices)
-                ):
+                ) and self.armature_obj is not None:
                     self.messages.append(('WARNING', f'Mesh "{obj.name}" seems to be not weighted to any bones'))
                     vertex_groups = []
 
