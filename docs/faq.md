@@ -6,20 +6,29 @@
 1. [Can you model/texture/animate a unit for me?](#can-you-modeltextureanimate-a-unit-for-me)
 1. [Where can I find the addon tools?](#where-can-i-find-the-addon-tools)
 1. [I've edited a `.whm` file. How can I update the `.whe` for it?](#ive-edited-a-whm-file-how-can-i-update-the-whe-for-it)
+1. [Why do I have a pink cube instead of my model in-game?](#why-do-i-have-a-pink-cube-instead-of-my-model-in-game)
 1. [Why is my model pink in-game?](#why-is-my-model-pink-in-game)
 1. [Why are some parts of my model invisible in-game?](#why-are-some-parts-of-my-model-invisible-in-game)
 1. [Why do my exported textures use `space_marine` path? How can I change it?](#why-do-my-exported-textures-use-space_marine-path-how-can-i-change-it)
 1. [Manually copying exported textures to my mod is tedious. Is there a simpler way?](#manually-copying-exported-textures-to-my-mod-is-tedious-is-there-a-simpler-way)
 1. [How do I edit textures using this addon?](#how-do-i-edit-textures-using-this-addon)
+1. [How to correctly set up a material nodes?](#how-to-correctly-set-up-a-material-nodes)
+1. [How to add a badge or a banner to the model?](#how-to-add-a-badge-or-a-banner-to-the-model)
+1. [How to make a reflective texture?](#how-to-make-a-reflective-texture)
 1. [Why does my exported model have more vertices than the original?](#why-does-my-exported-model-have-more-vertices-than-the-original)
 1. [How can I make my model fit the Army Painter window?](#how-can-i-make-my-model-fit-the-army-painter-window)
+1. [What does the force_invisible mesh flag do?](#what-does-the-force_invisible-mesh-flag-do)
 1. [How do I create `vis_` animations?](#how-do-i-create-vis_-animations)
+1. [What does the Stale bone flag do?](#what-does-the-stale-bone-flag-do)
 1. [How do I create `aim` animations?](#how-do-i-create-aim-animations)
 1. [Can I use IK or cloth simulation for my models?](#can-i-use-ik-or-cloth-simulation-for-my-models)
 1. [How to set up IK so it's easier to export it later?](#how-to-set-up-ik-so-its-easier-to-export-it-later)
 1. [How can I make animated textures (e.g., tank tracks/chainswords)?](#how-can-i-make-animated-textures-eg-tank-trackschainswords)
+1. [How to make a mesh invisible mid-animation?](#how-to-make-a-mesh-invisible-mid-animation)
+1. [How to make a model partially transparent?](#how-to-make-a-model-partially-transparent)
 1. [What is `Force Skinning`](#what-is-force-skinning)
 1. [How can I copy an action from one model to another?](#how-can-i-copy-an-action-from-one-model-to-another)
+1. [How can I copy a mesh from one model to another?](#how-can-i-copy-a-mesh-from-one-model-to-another)
 1. [Where can I see some example models?](#where-can-i-see-some-example-models)
 1. [How can I learn more about DoW modding?](#how-can-i-learn-more-about-dow-modding)
 1. [How can I help this project?](#how-can-i-help-this-project)
@@ -98,7 +107,7 @@ You can use **`Single Image Path`** and **`Full Path`** to make multiple models 
 ## Manually copying exported textures to my mod is tedious. Is there a simpler way?
 Yes, you can select `Texture store layout = Full path` in the export dialogue. It will create the same nested folder structure as it expects from the mod folder. Then you can copy it to your mod folder with the `Merge` option selected to automatically put everything into the correct places.  You can also copy it into your `DataGeneric` folder to make it work with the Object Editor.  
 You can go further and select `Data store location = Mod root` to automatically put all exported files into your mod. But be careful because it can override existing files there.  
-![store_layout](../images/faq/store_layout.png)
+![store_layout](../images/faq/store_layout.png)  
 There is also the `Custom Folder` option that allows you to manually specify the root folder to export your textures. It can be useful when working with the Object Editor to automatically put the files into the `DataGeneric` folder.
 
 ## How do I edit textures using this addon?
@@ -108,7 +117,7 @@ There are also some heuristics to infer an image role based on the node connecti
 You can edit images as usual, either by using  Blender texture painting or an external image editor. Take note that the addon packs texture images when importing a model, so you'll need to unpack them for editing with an external editor.
 ![image_layers](../images/faq/image_layers.png)
 
-## How to set up materials correctly?
+## How to correctly set up a material nodes?
 Add your image layers to the material and use the **`"Re-create node tree" operator`**. It automatically detects available layers and creates the nodes and connections.
 You can also use this operator to add teamcolor nodes to non-teamclored materials.
 ![recreate_nodetree](../images/faq/recreate_nodetree.png)
@@ -124,15 +133,15 @@ Here are the steps for a badge. The banner steps will be the same.
 
 ## How to make a reflective texture?
 There are 3 main parts of a reflective material in DE:
-1. Material Roughness value
+1. Material Roughness value  
     This value defines how sharp the reflected image is.  
     The engine only supports a singular Roughness value per material, so you cannot use a roughness map image.
     Setting Roughness to 0 disables the reflection system for the material.  
     ![roughness](../images/faq/roughness.jpg)
-2. Specular Layer image
+2. Specular Layer image  
     This image is added to the Diffuse color based on the reflection strength. To avoid making the resulting color too bright you might want to make the reflective areas darker at the Diffuse Layer.  
     ![specular](../images/faq/specular.jpg)
-3. Default reflection value
+3. Default reflection value  
     It's not clear how this value works, but it appears to be a multiplier for the Specular Layer color.  
     The base game models most commonly use values of 0 or 1.  
     ![default_reflections](../images/faq/default_reflections.jpg)
