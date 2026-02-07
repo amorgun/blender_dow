@@ -135,11 +135,12 @@ Here are the steps for a badge. The banner steps will be the same.
 There are 3 main parts of a reflective material in DE:
 1. Material Roughness value  
     This value defines how sharp the reflected image is.  
-    The engine only supports a singular Roughness value per material, so you cannot use a roughness map image.
+    The engine only supports a singular Roughness value per material, so you cannot use a roughness map image.  
     Setting Roughness to 0 disables the reflection system for the material.  
     ![roughness](../images/faq/roughness.jpg)
 2. Specular Layer image  
-    This image is added to the Diffuse color based on the reflection strength. To avoid making the resulting color too bright you might want to make the reflective areas darker at the Diffuse Layer.  
+    This image is added to the Diffuse color based on the reflection strength.  
+    To avoid making the resulting color too bright you might want to make the reflective areas darker at the Diffuse Layer.  
     ![specular](../images/faq/specular.jpg)
 3. Default reflection value  
     It's not clear how this value works, but it appears to be a multiplier for the Specular Layer color.  
