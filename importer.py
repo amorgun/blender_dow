@@ -195,7 +195,7 @@ class WhmLoader:
             full_path = material_path
         props.setup_property(mat, 'full_path', full_path)
         mat.use_nodes = True
-
+        mat.node_tree.rename(mat.name)
         material_data = materials.MaterialInfo(
             default_color=mathutils.Color(i / 255. for i in default_color),
             roughness_value=1 / (math.log2(roughness_data) + 1) if roughness_data > 1 else 0,
