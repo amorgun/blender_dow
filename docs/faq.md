@@ -26,7 +26,7 @@
 1. [How can I make animated textures (e.g., tank tracks/chainswords)?](#how-can-i-make-animated-textures-eg-tank-trackschainswords)
 1. [How to make a mesh invisible mid-animation?](#how-to-make-a-mesh-invisible-mid-animation)
 1. [How to make a model partially transparent?](#how-to-make-a-model-partially-transparent)
-1. [What is `Force Skinning`](#what-is-force-skinning)
+1. [What is `Force Skinning`?](#what-is-force-skinning)
 1. [How can I copy an action from one model to another?](#how-can-i-copy-an-action-from-one-model-to-another)
 1. [How can I copy a mesh from one model to another?](#how-can-i-copy-a-mesh-from-one-model-to-another)
 1. [Where can I see some example models?](#where-can-i-see-some-example-models)
