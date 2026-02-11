@@ -15,6 +15,7 @@
 1. [How to correctly set up a material nodes?](#how-to-correctly-set-up-a-material-nodes)
 1. [How to add a badge or a banner to the model?](#how-to-add-a-badge-or-a-banner-to-the-model)
 1. [How to make a reflective texture?](#how-to-make-a-reflective-texture)
+1. [How do I change a model scale?](#how-do-i-change-a-model-scale)
 1. [Why does my exported model have more vertices than the original?](#why-does-my-exported-model-have-more-vertices-than-the-original)
 1. [How can I make my model fit the Army Painter window?](#how-can-i-make-my-model-fit-the-army-painter-window)
 1. [What does the force_invisible mesh flag do?](#what-does-the-force_invisible-mesh-flag-do)
@@ -146,6 +147,13 @@ There are 3 main parts of a reflective material in DE:
     It's not clear how this value works, but it appears to be a multiplier for the Specular Layer color.  
     The base game models most commonly use values of 0 or 1.  
     ![default_reflections](../images/faq/default_reflections.jpg)
+
+## How do I change a model scale?
+1. Import the model into Blender
+2. Unhide the Armature (`Alt + H`)
+3. Select the Armature
+4. Change the `Transform Pivot Point` to the `3D Cursor`
+5. Scale the Armature (`S` key)
 
 ## Why does my exported model have more vertices than the original?
 It happens because DoW models allow a vertex to have exactly one UV position and corner normal. This means if a vertex belongs to either a UV seam or a Sharp Edge, it needs to be duplicated.
