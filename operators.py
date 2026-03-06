@@ -34,6 +34,23 @@ def make_prop_row(row, obj, prop_name: str, display_name: str = None, **extra_ob
         row.operator(DOW_OT_setup_property.bl_idname, text=f'Set up "{display_name}"').name = prop_name
 
 
+def draw_action_selector(animated_id, layout):
+    layout.template_action(animated_id, new='action.new', unlink='action.unlink')
+    adt = animated_id.animation_data
+    if not adt or not adt.action:
+        return
+
+    # Only show the slot selector when a layered Action is assigned.
+    if adt.action.is_action_layered:
+        layout.context_pointer_set('animated_id', animated_id)
+        layout.template_search(
+            adt, 'action_slot',
+            adt, 'action_suitable_slots',
+            new='anim.slot_new_for_id',
+            unlink='anim.slot_unassign_from_id',
+        )
+
+
 class DOW_OT_setup_uv_mapping(bpy.types.Operator):
     """Set up uv_offset and uv_tiling nodes"""
 
@@ -888,7 +905,7 @@ class DowTools(bpy.types.Panel):
                         if parent_anim_data is not None:
                             current_action = parent_anim_data.action
                 layout.row().label(text='Action')
-                layout.row().template_action(context.active_object, new='action.new', unlink='action.unlink')
+                draw_action_selector(context.active_object, layout)
                 if current_action is not None:
                     row = layout.row()
                     row.prop(context.active_object, 'dow_force_invisible')
@@ -996,21 +1013,7 @@ class DowMaterialTools(bpy.types.Panel):
         is_animated = mat.node_tree is not None and mat.node_tree.animation_data is not None
         if is_animated:
             layout.row().label(text='Action')
-            animated_id = mat.node_tree
-            layout.template_action(animated_id, new='action.new', unlink='action.unlink')
-            adt = animated_id.animation_data
-            if not adt or not adt.action:
-                return
-
-            # Only show the slot selector when a layered Action is assigned.
-            if adt.action.is_action_layered:
-                layout.context_pointer_set('animated_id', animated_id)
-                layout.template_search(
-                    adt, 'action_slot',
-                    adt, 'action_suitable_slots',
-                    new='anim.slot_new_for_id',
-                    unlink='anim.slot_unassign_from_id',
-                )
+            draw_action_selector(mat.node_tree, layout)
 
         layout.separator()
         layout.row().operator(DOW_OT_setup_material.bl_idname)
