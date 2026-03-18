@@ -5,6 +5,7 @@ import math
 import tempfile
 
 import bpy
+from bpy_extras import anim_utils
 import mathutils
 
 from . import textures, materials, utils, props
@@ -661,6 +662,14 @@ class WhmLoader:
                     new_rot.make_compatible(camera_obj.rotation_quaternion)  # Fix random axis flipping
                     camera_obj.rotation_quaternion = new_rot
                     camera_obj.keyframe_insert(data_path='rotation_quaternion', frame=frame)
+
+        for slot in animation.slots or []:
+            channelbag = anim_utils.action_get_channelbag_for_slot(animation, slot)
+            if channelbag is None:
+                continue
+            for fcurve in channelbag.fcurves:
+                for kp in fcurve.keyframe_points:
+                    kp.interpolation = 'LINEAR'
 
        # ---< DATAANBV >---
 

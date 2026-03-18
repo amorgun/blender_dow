@@ -1136,9 +1136,15 @@ def rename_listener(scene, depsgraph):
                 continue
             for rename_from, rename_to in rename_props:
                 for action in bpy.data.actions:
-                    for fcurve in action.fcurves:
-                        if rename_from in fcurve.data_path:
-                            fcurve.data_path = fcurve.data_path.replace(rename_from, rename_to)
+                    if action.slots is None:
+                        continue
+                    for slot in action.slots:
+                        channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+                        if channelbag is None:
+                            continue
+                        for fcurve in channelbag.fcurves:
+                            if rename_from in fcurve.data_path:
+                                fcurve.data_path = fcurve.data_path.replace(rename_from, rename_to)
 
 
 @bpy.app.handlers.persistent
