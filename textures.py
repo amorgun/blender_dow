@@ -32,16 +32,6 @@ def img2pil(bpy_image) -> PilImage:
 
 
 def encode_dds(pil_image: PilImage, force_type: DdsType = None):
-    import quicktex.dds
-    import quicktex.s3tc.bc1
-    import quicktex.s3tc.bc3
-
-    result = io.BytesIO()
-    level = 10
-    color_mode = quicktex.s3tc.bc1.BC1Encoder.ColorMode
-    mode = color_mode.ThreeColor
-    bc1_encoder = quicktex.s3tc.bc1.BC1Encoder(level, mode)
-    bc3_encoder = quicktex.s3tc.bc3.BC3Encoder(level)
     if 'A' not in pil_image.mode:
         has_alpha = False
     else:
@@ -49,18 +39,15 @@ def encode_dds(pil_image: PilImage, force_type: DdsType = None):
         has_alpha = any([a > 0 for a in alpha_hist[:-1]])
         # TODO test for 1-bit alpha
     if force_type is DdsType.DXT1 or (not force_type and not has_alpha):
-        dds = quicktex.dds.encode(pil_image, bc1_encoder, 'DXT1')
-        image_type = 5
-        image_format = 8
+        pixel_format = 'DXT1'
     else:
-        dds = quicktex.dds.encode(pil_image, bc3_encoder, 'DXT5')
-        image_type = 7
-        image_format = 11
-    for texture in dds.textures:
-        result.write(texture)
+        pixel_format = 'DXT5'
+    result = io.BytesIO()
+    pil_image.save(result, format='DDS', pixel_format=pixel_format)
     result.flush()
     result.seek(0)
-    return dds.size[0], dds.size[1], dds.mipmap_count, image_format, image_type, result
+    is_dds, width, height, declared_data_size, num_mips, image_format, image_type = read_dds_header(result)
+    return width, height, num_mips, image_format, image_type, result
 
 # if (imageType == 5) return FileFormats.ImgType.DXT1DDS;
 # if (imageType == 6) return FileFormats.ImgType.DXT3DDS;
@@ -82,7 +69,7 @@ def write_dds(
     num_mips: int,
     image_format: int,
 ):
-    _DOW_DXT_FLAGS = 0x000A1007  # _DEFAULT_FLAGS | _dwF_MIPMAP | _dwF_LINEAR
+    _DOW_DXT_FLAGS = 0x00081007 | (0x20000 if num_mips > 0 else 0)  # _DEFAULT_FLAGS | _dwF_MIPMAP | _dwF_LINEAR
     _ddsF_FOURCC = 0x00000004
     _DOW_DDSCAPS_FLAGS = 0x401008 # _ddscaps_F_TEXTURE | _ddscaps_F_COMPLEX | _ddscaps_F_MIPMAP_S
     fourCC = {8: b'DXT1', 10: b'DXT3', 11: b'DXT5'}[image_format]
