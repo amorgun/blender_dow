@@ -455,6 +455,7 @@ class ExportPanelTextures(ExportPanel, bpy.types.Panel):
             operator.texture_format = exporter.MaterialExportFormat.RSH
         self.layout.prop(operator, 'max_texture_size')
         self.layout.prop(operator, 'default_texture_path')
+        self.layout.prop(operator, 'ignore_material_paths')
         if is_whm:
             if operator.texture_format == exporter.MaterialExportFormat.RSH:
                 self.layout.prop(operator, 'export_teamcolored_rtx')
@@ -478,12 +479,13 @@ class ExportPanelVertexMerging(ExportPanel, bpy.types.Panel):
         self.layout.prop(operator, 'vertex_normal_merge_threshold', text='Normal Threshold')
 
 
-class ExportPanelLegacy(ExportPanel, bpy.types.Panel):
-    bl_idname = 'FILE_PT_dow_export_legacy'
-    bl_label = 'Legacy'
+class ExportPanelOther(ExportPanel, bpy.types.Panel):
+    bl_idname = 'FILE_PT_dow_export_other'
+    bl_label = 'Other'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_impl(self, context, operator):
+        self.layout.prop(operator, 'ignore_xrefs')
         self.layout.prop(operator, 'use_legacy_marker_orientation')
 
 
@@ -524,6 +526,12 @@ class ExportModel:
     default_texture_path: bpy.props.StringProperty(
         default='art/ebps/races/space_marines/texture_share',
         name='Default texture folder',
+    )
+
+    ignore_material_paths: bpy.props.BoolProperty(
+        default=False,
+        name='Ignore per-material paths',
+        description='Force-put all exported textures into the Default texture folder',
     )
 
     export_teamcolored_rtx: bpy.props.BoolProperty(
@@ -586,6 +594,12 @@ class ExportModel:
         default=0.01, min=0, soft_max=1, precision=3,
     )
 
+    ignore_xrefs: bpy.props.BoolProperty(
+        default=False,
+        name='Force copy xrefs',
+        description='Copy the data of xrefed meshes instead of creating a reference to another model',
+    )
+
     use_legacy_marker_orientation: bpy.props.BoolProperty(
         name='Legacy markers',
         description='Use legacy marker orientation',
@@ -599,8 +613,8 @@ class ExportModel:
         addon_prefs = get_preferences(context)
         saved_args = [
             'filepath', 'object_name', 'meta', 'convert_textures', 'texture_format', 'max_texture_size',
-            'default_texture_path', 'export_teamcolored_rtx', 'teamcolored_rtx_suffix',
-            'data_location', 'store_layout', 'custom_data_folder', 'override_files',
+            'default_texture_path', 'ignore_material_paths', 'export_teamcolored_rtx', 'teamcolored_rtx_suffix',
+            'data_location', 'store_layout', 'custom_data_folder', 'override_files', 'ignore_xrefs',
             'vertex_position_merge_threshold', 'vertex_normal_merge_threshold',
         ]
         save_args(addon_prefs.last_args, self, f'export_{self.filename_ext[1:]}', *saved_args)
@@ -626,6 +640,7 @@ class ExportModel:
                                    override_files=self.override_files,
                                    format=self.FORMAT,
                                    default_texture_path=self.default_texture_path,
+                                   ignore_material_paths=self.ignore_material_paths,
                                    convert_textures=self.convert_textures,
                                    material_export_format=self.texture_format,
                                    export_teamcolored_rtx=(
@@ -637,6 +652,7 @@ class ExportModel:
                                    max_texture_size=self.max_texture_size,
                                    vertex_position_merge_threshold=self.vertex_position_merge_threshold,
                                    vertex_normal_merge_threshold=self.vertex_normal_merge_threshold,
+                                   ignore_xrefs=self.ignore_xrefs,
                                    use_legacy_marker_orientation=self.use_legacy_marker_orientation,
                                    context=context)
             try:
@@ -740,7 +756,7 @@ def register():
     bpy.utils.register_class(ExportPanelMeta)
     bpy.utils.register_class(ExportPanelTextures)
     bpy.utils.register_class(ExportPanelVertexMerging)
-    bpy.utils.register_class(ExportPanelLegacy)
+    bpy.utils.register_class(ExportPanelOther)
     bpy.utils.register_class(ExportWhm)
     bpy.utils.register_class(ExportSgm)
     bpy.utils.register_class(LastCallArgsGroup)
@@ -786,7 +802,7 @@ def unregister():
     bpy.utils.unregister_class(LastCallArgsGroup)
     bpy.utils.unregister_class(ExportSgm)
     bpy.utils.unregister_class(ExportWhm)
-    bpy.utils.unregister_class(ExportPanelLegacy)
+    bpy.utils.unregister_class(ExportPanelOther)
     bpy.utils.unregister_class(ExportPanelVertexMerging)
     bpy.utils.unregister_class(ExportPanelTextures)
     bpy.utils.unregister_class(ExportPanelMeta)

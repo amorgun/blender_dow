@@ -180,6 +180,7 @@ class Exporter:
             convert_textures: bool = True,
             material_export_format: MaterialExportFormat = MaterialExportFormat.RSH,
             default_texture_path: str = '',
+            ignore_material_paths: bool = False,
             max_texture_size: int = 1024,
             make_oe_compatable_textures: bool = True,
             export_teamcolored_rtx: bool = True,
@@ -187,6 +188,7 @@ class Exporter:
             vertex_position_merge_threshold: float = 0,
             vertex_normal_merge_threshold: float = 0.01,
             uv_merge_threshold: float = 0.001,
+            ignore_xrefs: bool = False,
             use_legacy_marker_orientation: bool = False,
             context=None,
         ) -> None:
@@ -197,10 +199,12 @@ class Exporter:
         self.convert_textures = convert_textures
         self.material_export_format = material_export_format
         self.default_texture_path = pathlib.PurePosixPath(default_texture_path)
+        self.ignore_material_paths = ignore_material_paths
         self.max_texture_size = max_texture_size
         self.make_oe_compatable_textures = make_oe_compatable_textures
         self.export_teamcolored_rtx = export_teamcolored_rtx
         self.teamcolored_rtx_suffix = teamcolored_rtx_suffix
+        self.ignore_xrefs = ignore_xrefs
         self.vertex_position_merge_threshold = vertex_position_merge_threshold
         self.vertex_normal_merge_threshold = vertex_normal_merge_threshold
         self.uv_merge_threshold = uv_merge_threshold
@@ -253,9 +257,10 @@ class Exporter:
         return contextlib.nullcontext()
 
     def get_material_path(self, mat) -> str:
-        user_path = mat.get('full_path', None)
-        if user_path and user_path.strip():
-            return user_path
+        if not self.ignore_material_paths:
+            user_path = mat.get('full_path', None)
+            if user_path and user_path.strip():
+                return user_path
         return str(self.default_texture_path / mat.name)
 
     def write_relic_chunky(self, writer: ChunkWriter):
@@ -328,13 +333,13 @@ class Exporter:
                 }
                 img = mat_info.channel_images.get(materials.MaterialLayers.DIFFUSE)
                 if img is not None:
-                    mat_path = img.dow_export_path.strip() or mat_path
+                    mat_path = (not self.ignore_material_paths and img.dow_export_path.strip()) or mat_path
                 mat_name = pathlib.Path(mat_path).name.replace('.', '_')
                 material_images = {}
                 for layer, image in mat_info.channel_images.items():
                     if image is None:
                         continue
-                    img_path = image.dow_export_path.strip() or f'{mat_path}{image_suffixes[layer]}'
+                    img_path = (not self.ignore_material_paths and image.dow_export_path.strip()) or f'{mat_path}{image_suffixes[layer]}'
                     rtx_path = self.paths.get_path(f'{img_path}.rtx')
                     if img_path in self.exported_images:
                         material_images[layer] = img_path
@@ -886,7 +891,7 @@ class Exporter:
                     vertex_groups = []
 
                 xref_source = obj_orig.get('xref_source', '').strip()
-                if xref_source:
+                if xref_source and not self.ignore_xrefs:
                     # TODO check if file exists
                     mesh_xrefs[obj.name] = xref_source
                     continue
