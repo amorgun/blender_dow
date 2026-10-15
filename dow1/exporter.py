@@ -14,8 +14,9 @@ import mathutils
 from bpy_extras import anim_utils
 from PIL import Image as PilImage
 
-from . import textures, utils, props, dow_layout, materials
-from .chunky import ChunkWriter
+from .. import textures, utils, props, dow_layout, materials
+from ..chunky import ChunkWriter
+from ..exporting import FileDispatcher
 
 
 @enum.unique
@@ -27,40 +28,6 @@ class ExportFormat(enum.Enum):
 class MaterialExportFormat(str, enum.Enum):
     RSH = 'rsh',
     RTX = 'rtx',
-
-
-class FileDispatcher:
-    @enum.unique
-    class Layout(enum.Enum):
-        FLAT = enum.auto()
-        FLAT_FOLDERS = enum.auto()
-        FULL_PATH = enum.auto()
-
-    def __init__(self, root: str, layout: Layout, subfolder: str | None):
-        self.root = pathlib.Path(root)
-        self.layout = layout
-        self.file_info = []
-        self.subfolder = subfolder
-        
-    def get_path(self, path: str, require_parent=False) -> pathlib.Path:
-        path = pathlib.Path(path)
-        path_parts = [self.subfolder] if self.subfolder else []
-        match self.layout:
-            case FileDispatcher.Layout.FLAT: path_parts.append(path.name)
-            case FileDispatcher.Layout.FLAT_FOLDERS: path_parts.extend([path.parent.name, path.name] if require_parent else [path.name])
-            case FileDispatcher.Layout.FULL_PATH: path_parts.extend(path.parts)
-        return dow_layout.try_find_path(self.root, *path_parts)
-
-    def add_info(self, declared_path: str, real_path: pathlib.Path):
-        self.file_info.append((real_path.relative_to(self.root), declared_path))
-
-    def dump_info(self):
-        if self.layout is FileDispatcher.Layout.FULL_PATH:
-            return
-        self.root.mkdir(parents=True, exist_ok=True)
-        with open(self.root / 'info.txt', 'w') as f:
-            for filename, dst in self.file_info:
-                f.write(f'{filename} -> {dst}\n')
 
 
 @dataclasses.dataclass
@@ -169,6 +136,19 @@ def get_chunk_versions(export_format: ExportFormat, material_format: MaterialExp
     if export_format == ExportFormat.WHM and material_format == MaterialExportFormat.RTX:
         res['FOLDRSGM']['version'] = 4
     return res
+
+
+# The only channel layers the Dawn of War material formats (.rsh / .wtp) can
+# store; everything else (normal maps, gloss, occlusion, dirt, pattern) is a
+# DoW2/DoW3 feature and is dropped on export.
+EXPORTABLE_LAYERS = frozenset({
+    materials.MaterialLayers.DIFFUSE,
+    materials.MaterialLayers.OPACITY,
+    materials.MaterialLayers.SPECULAR_MASK,
+    materials.MaterialLayers.SPECULAR_REFLECTION,
+    materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
+    materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,
+})
 
 
 class Exporter:
@@ -286,6 +266,23 @@ class Exporter:
                 self.messages.append(('ERROR', f'Error while exporting material {mat.name}'))
                 raise
 
+    def warn_unsupported_material_features(self, mat, mat_info: materials.MaterialInfo):
+        """Flag material data that has no place in the Dawn of War formats, so the
+        user sees what silently drops out on export instead of wondering why the
+        result differs."""
+        for layer, image in mat_info.channel_images.items():
+            if image is not None and layer not in EXPORTABLE_LAYERS:
+                self.messages.append((
+                    'WARNING',
+                    f'Material {mat.name}: the {layer.value.replace("_", " ")} layer '
+                    f'is not supported by Dawn of War and will not be exported'))
+        for slot in ('badge', 'banner'):
+            if abs(getattr(mat_info, f'{slot}_rotation')) > 1e-6:
+                self.messages.append((
+                    'WARNING',
+                    f'Material {mat.name}: {slot} rotation is not supported by '
+                    f'Dawn of War and will be ignored'))
+
     def write_material(self, writer: ChunkWriter, mat) -> bool:
         if not mat.node_tree:
             self.messages.append(('WARNING', f'No nodes for material {mat.name}'))
@@ -294,6 +291,7 @@ class Exporter:
         mat_path = pathlib.PurePosixPath(self.get_material_path(mat))
         mat_path = mat_path.with_name(mat_path.name.replace('.', '_'))
         mat_info = materials.extract_material_info(mat)
+        self.warn_unsupported_material_features(mat, mat_info)
         if (self.material_export_format == MaterialExportFormat.RSH
             and materials.MaterialLayers.DIFFUSE not in mat_info.channel_images):
                 self.messages.append(('WARNING', f'Cannot find a texture for material {mat.name}'))
@@ -337,7 +335,7 @@ class Exporter:
                 mat_name = pathlib.Path(mat_path).name.replace('.', '_')
                 material_images = {}
                 for layer, image in mat_info.channel_images.items():
-                    if image is None:
+                    if image is None or layer not in image_suffixes:
                         continue
                     img_path = (not self.ignore_material_paths and image.dow_export_path.strip()) or f'{mat_path}{image_suffixes[layer]}'
                     rtx_path = self.paths.get_path(f'{img_path}.rtx')
@@ -358,7 +356,9 @@ class Exporter:
                     material_images[layer] = img_path
                     self.exported_images[img_path] = image
                 material_images.setdefault(materials.MaterialLayers.OPACITY, material_images.get(materials.MaterialLayers.DIFFUSE, ''))
-                material_images.setdefault(materials.MaterialLayers.SELF_ILLUMUNATION_COLOR, material_images.get(materials.MaterialLayers.SELF_ILLUMUNATION_MASK, ''))
+                material_images.setdefault(
+                    materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,
+                    material_images.get(materials.MaterialLayers.DIFFUSE, ''))
                 self.exported_materials[mat.name] = mat_name
                 with writer.start_chunk('FOLDSHDR', name=mat_name):
                     with writer.start_chunk('DATAINFO'):

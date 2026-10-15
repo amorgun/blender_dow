@@ -199,6 +199,121 @@ class DowLayout:
         return res
 
     @classmethod
+    def from_dow2_module(cls, path: str | pathlib.Path = None, loose_folder: str | pathlib.Path = None, lang: str = None) -> 'DowLayout':
+        res = cls()
+        if loose_folder is not None:
+            res.sources.append(DirectorySource(loose_folder, name='loose'))
+        if path is None:
+            return res
+        path = pathlib.Path(path)
+        root = path.parent
+        config = configparser.ConfigParser(interpolation=None, comment_prefixes=('#', ';', '--'), strict=False)
+        config.read(path)
+        lang = (lang or res.default_lang).lower()
+        for section in config.sections():
+            if ':' not in section:
+                continue
+            variant = section.split(':', 1)[1].lower()
+            if variant not in ('common', lang):
+                continue
+            for key, value in config[section].items():
+                source_path = try_find_path(root, *pathlib.PureWindowsPath(value).parts)
+                if key.startswith('folder.'):
+                    res.sources.append(DirectorySource(source_path, name=section))
+                elif key.startswith('archive.'):
+                    res.sources.append(SgaSource(source_path, name=section))
+        return res
+
+    @classmethod
+    def from_dow3_folder(cls, path: str | pathlib.Path = None, loose_folder: str | pathlib.Path = None, model_level: ModelLevel = None) -> 'DowLayout':
+        res = cls()
+        if loose_folder is not None:
+            res.sources.append(DirectorySource(loose_folder, name='loose'))
+        if path is None:
+            return res
+        module = cls.resolve_dow3_module(path)
+        if module is not None:
+            return cls.from_dow3_module(module, loose_folder=loose_folder, model_level=model_level)
+        archives = cls.resolve_dow3_archives_folder(path)
+        model_level = model_level or res.default_model_level
+        detail_archive = 'artlow.sga' if model_level == ModelLevel.LOW else 'arthigh.sga'
+        mount_order = [detail_archive, 'art.sga']
+        mount_order += sorted(
+            p.name for p in archives.iterdir()
+            if p.name.startswith('art') and p.suffix.lower() == '.sga'
+            and not p.name.startswith(('artenvironment', 'artscenarios'))
+            and p.name not in ('arthigh.sga', 'artlow.sga', 'art.sga')
+        )
+        mount_order.append('attrib.sga')
+        for name in mount_order:
+            res.sources.append(SgaSource(archives / name, name=name))
+        return res
+
+    @classmethod
+    def from_dow3_module(cls, path: str | pathlib.Path, loose_folder: str | pathlib.Path = None, model_level: ModelLevel = None) -> 'DowLayout':
+        """Mount the [data] and [attrib] archives of a Dawn of War III module descriptor
+        (share/data/relicgame.module; archiveRoot paths are relative to the module's folder)"""
+        res = cls()
+        if loose_folder is not None:
+            res.sources.append(DirectorySource(loose_folder, name='loose'))
+        path = pathlib.Path(path)
+        root = path.parent
+        config = configparser.ConfigParser(interpolation=None, comment_prefixes=('#', ';'), strict=False)
+        config.read(path)
+        model_level = model_level or res.default_model_level
+        detail_variant = 'art_low' if model_level == ModelLevel.LOW else 'art_high'
+
+        def section_archives(section):
+            archive_root = config[section].get('archiveroot')
+            if archive_root is None:
+                return
+            names = [value for key, value in sorted(config[section].items()) if key.startswith('archive.')]
+            for name in names:
+                source_path = try_find_path(root, *pathlib.PureWindowsPath(archive_root).parts, f'{name}.sga')
+                res.sources.append(SgaSource(source_path, name=section))
+
+        def matching_sections(kind, variant):
+            # the game's own archives (numbered subsections) mount before the engine's (base section)
+            base = f'{kind}:{variant}'
+            sections = [s for s in config.sections() if s == base or s.startswith(f'{base}:')]
+            return sorted(sections, key=lambda s: (s == base, s))
+
+        for section in matching_sections('data', detail_variant):
+            section_archives(section)
+        for section in matching_sections('data', 'common'):
+            section_archives(section)
+        for section in matching_sections('attrib', 'common'):
+            section_archives(section)
+        return res
+
+    @classmethod
+    def resolve_dow3_module(cls, path: str | pathlib.Path) -> pathlib.Path | None:
+        """The module descriptor for a selection: the .module file itself, or one found
+        under a game/data folder; None when only a bare archives folder was selected"""
+        path = pathlib.Path(path)
+        if path.is_file():
+            return path if path.suffix.lower() == '.module' else None
+        for candidate in (path, try_find_path(path, 'share', 'data')):
+            if candidate.is_dir():
+                for entry in candidate.iterdir():
+                    if entry.suffix.lower() == '.module' and entry.is_file():
+                        return entry
+        return None
+
+    @classmethod
+    def resolve_dow3_archives_folder(cls, path: str | pathlib.Path) -> pathlib.Path:
+        path = pathlib.Path(path)
+        if path.is_file():
+            path = path.parent
+        if (path / 'arthigh.sga').is_file():
+            return path
+        for parts in (('share', 'data', 'dow3', 'archives'), ('dow3', 'archives')):
+            candidate = try_find_path(path, *parts)
+            if (candidate / 'arthigh.sga').is_file():
+                return candidate
+        raise FileNotFoundError(f'No Dawn of War III archives found under {path}')
+
+    @classmethod
     def _initilize_defaults(cls, root: pathlib.Path) -> 'DowLayout':
         lang_config = cls.load_lang(root)
         game_config = cls.load_game_options(root)
@@ -262,7 +377,7 @@ class DowLayout:
         if 'engine' not in result:
             result['engine'] = {
                 'modfolder': 'engine',
-                'archivefiles': ['%LOCALE%\EnginLoc', 'Engine', 'Engine-New'],
+                'archivefiles': ['%LOCALE%\\EnginLoc', 'Engine', 'Engine-New'],
             }
         return result
 

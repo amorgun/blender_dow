@@ -5,12 +5,11 @@ import math
 import tempfile
 
 import bpy
-from bpy_extras import anim_utils
 import mathutils
 
-from . import textures, materials, utils, props
-from .chunky import ChunkReader, ChunkHeader
-from .dow_layout import DowLayout, LayoutPath, DirectoryPath
+from .. import animations, textures, materials, mesh, utils, props
+from ..chunky import ChunkReader, ChunkHeader
+from ..dow_layout import DowLayout, LayoutPath, DirectoryPath
 
 
 def open_reader(path: LayoutPath) -> ChunkReader:
@@ -23,12 +22,6 @@ class BoneData:  # -- Structure To Hold Bone Data (4, X, 4, 28)
     parent_idx: int = None
     pos: list[float] = dataclasses.field(default_factory=lambda: [0] * 3)
     rot: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
-
-
-@dataclasses.dataclass
-class SkinVertice:
-    weights: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
-    bones: list[float] = dataclasses.field(default_factory=lambda: [0] * 4)
 
 
 class WhmLoader:
@@ -196,7 +189,9 @@ class WhmLoader:
             full_path = material_path
         props.setup_property(mat, 'full_path', full_path)
         mat.use_nodes = True
-        mat.node_tree.rename(mat.name)
+        # embedded node trees keep their default name: ID.rename() on an embedded
+        # tree corrupts bpy.data.node_groups once several node groups exist
+        # (Blender 5.2), crashing on the next full datablock free
         material_data = materials.MaterialInfo(
             default_color=mathutils.Color(i / 255. for i in default_color),
             roughness_value=1 / (math.log2(roughness_data) + 1) if roughness_data > 1 else 0,
@@ -213,13 +208,15 @@ class WhmLoader:
                 3: materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
                 4: materials.MaterialLayers.OPACITY,
                 5: None,  # Unused
-                6: materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,  # TODO Probably emission color
+                6: materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,  # present in data, ignored by the engine
             }[channel_idx]
             image = loaded_textures.get(texture_name)
             if image is None:
                 self.messages.append(('WARNING', f'Material "{material_name}": cannot find {layer.value} texture ("{texture_name}")'))
                 continue
             material_data.channel_images[layer] = image
+            if channel_idx == 6:
+                material_data.use_self_illumination_color = False
 
         if self.wtp_load_enabled:
             for channel in channels:
@@ -455,20 +452,9 @@ class WhmLoader:
             focus_obj.matrix_basis = mathutils.Matrix.Translation([-focus_point[0], -focus_point[2], focus_point[1]])
             focus_obj.empty_display_type = 'SPHERE'
 
-            cam = bpy.data.cameras.new(cam_name)
-            cam.clip_start, cam.clip_end = clip_start, clip_end
-
-            cam.dof.use_dof = True
-            cam.dof.focus_object = focus_obj
-            cam.lens_unit = 'FOV'
-            cam.angle = 2 * math.pi - 4 * math.atan(math.pi / 9 + 2.14 / fov)  # magic
-
-            cam_obj = bpy.data.objects.new(cam_name, cam)
-            cam_obj.matrix_basis = transform
-            cam_obj.rotation_mode = 'QUATERNION'
-
-            cameras_collection.objects.link(cam_obj)
-            self.created_cameras[cam_name] = cam_obj
+            angle = 2 * math.pi - 4 * math.atan(math.pi / 9 + 2.14 / fov)  # magic
+            self.created_cameras[cam_name] = utils.create_camera(
+                cameras_collection, cam_name, transform, angle, clip_start, clip_end, focus_object=focus_obj)
 
     def CH_FOLDANIM(self, reader: ChunkReader):  # Chunk Handler - Animations
         # ---< DATADATA >---
@@ -489,17 +475,14 @@ class WhmLoader:
         animation.frame_range = 0, num_frames - 1  # -- Set Start & End Frames
         props.setup_property(animation, 'fps', fps)
 
-        def create_animation_data(obj, slot):
-            if obj.animation_data is None:
-                obj.animation_data_create()
-            obj.animation_data.action = animation
-            obj.animation_data.action_slot = slot
-
         # ---< BONES >---
 
         num_bones = reader.read_one('<l')  # -- Read Number Of Bones
+        channelbag = None
         if num_bones:
-            create_animation_data(self.armature_obj, animation.slots.new(id_type='OBJECT', name='Skeleton'))
+            slot = animation.slots.new(id_type='OBJECT', name='Skeleton')
+            utils.bind_action_slot(self.armature_obj, animation, slot)
+            channelbag = utils.ensure_channelbag_exists(animation, slot)
         for bone_idx in range(num_bones):  # -- Read Bones
             bone_name = reader.read_str()  # -- Read Bone Name
             bone = self.armature_obj.pose.bones.get(bone_name)
@@ -510,38 +493,46 @@ class WhmLoader:
 
             delta = mathutils.Matrix.Rotation(math.radians(-90.0), 4, 'Z').to_4x4()
             keys_pos = reader.read_one('<l')  # -- Read Number Of Postion Keys
+            locations = []
             for _ in range(keys_pos):  # -- Read Postion Keys
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                 x, y, z = reader.read_struct('<3f')  # -- Read Position
-                new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, y, z]))
                 if bone is None:
                     continue
+                new_transform = mathutils.Matrix.Translation(mathutils.Vector([-x, y, z]))
                 new_mat = delta.inverted() @ orig_transform.inverted() @ new_transform @ delta
                 loc, *_ = new_mat.decompose()
-                bone.location = loc
-                self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].location', frame=frame, group=bone_name)
+                locations.append((frame, loc))
+            for axis in range(3 if locations else 0):
+                animations.insert_keyframes(
+                    channelbag, f'pose.bones["{bone_name}"].location', axis,
+                    [(frame, loc[axis]) for frame, loc in locations], group=bone_name)
 
             keys_rot = reader.read_one('<l')  # -- Read Number Of Rotation Keys
             if bone is not None:
                 orig_rot = self.bone_orig_transform[bone_name].to_quaternion()  # FIXME
                 delta = delta.to_quaternion()
                 bone.matrix_basis = mathutils.Matrix()
+                previous = bone.rotation_quaternion.copy()
+            rotations = []
             for _ in range(keys_rot):
                 frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                 key_rot = reader.read_struct('<4f')  # -- Read Rotation X, Y, Z, W
-                new_transform = mathutils.Quaternion([key_rot[3], key_rot[0], -key_rot[1], -key_rot[2]])
                 if bone is None:
                     continue
+                new_transform = mathutils.Quaternion([key_rot[3], key_rot[0], -key_rot[1], -key_rot[2]])
                 new_rot = delta.inverted() @ orig_rot.inverted() @ new_transform @ delta
-                new_rot.make_compatible(bone.rotation_quaternion)  # Fix random axis flipping
-                bone.rotation_quaternion = new_rot
-                self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"].rotation_quaternion', frame=frame, group=bone_name)
+                new_rot.make_compatible(previous)  # Fix random axis flipping
+                previous = new_rot
+                rotations.append((frame, new_rot))
+            for axis in range(4 if rotations else 0):
+                animations.insert_keyframes(
+                    channelbag, f'pose.bones["{bone_name}"].rotation_quaternion', axis,
+                    [(frame, rot[axis]) for frame, rot in rotations], group=bone_name)
             stale = not reader.read_one('<b')  # -- Read Stale Property
-            # if stale == 0 then setUserProp bone "Stale" "Yes"											-- Set Stale Property
             if stale and bone is not None:
-                # bone.dow_settings.stale = stale
                 props.setup_property(bone, 'stale', True)
-                self.armature_obj.keyframe_insert(data_path=f'pose.bones["{bone_name}"]["stale"]', frame=0, group=bone_name)
+                animations.insert_keyframes(channelbag, f'pose.bones["{bone_name}"]["stale"]', 0, [(0, 1.0)], group=bone_name)
 
         # ---< MESHES & TEXTURES >---
 
@@ -562,25 +553,29 @@ class WhmLoader:
                         is_invisible = True
                 else:
                     visible_meshes.add(obj_name)
-                mesh = self.created_meshes.get(obj_name.lower())
-                if mesh is not None:
-                    create_animation_data(mesh, animation.slots.new(id_type='OBJECT', name=obj_name))
-                    props.setup_property(mesh, 'force_invisible')
-                    mesh['force_invisible'] = is_invisible
-                    mesh.keyframe_insert(data_path='["force_invisible"]', frame=0)
+                mesh_obj = self.created_meshes.get(obj_name.lower())
+                if mesh_obj is not None:
+                    slot = animation.slots.new(id_type='OBJECT', name=obj_name)
+                    utils.bind_action_slot(mesh_obj, animation, slot)
+                    mesh_channelbag = utils.ensure_channelbag_exists(animation, slot)
+                    props.setup_property(mesh_obj, 'force_invisible')
+                    mesh_obj['force_invisible'] = is_invisible
+                    animations.insert_keyframes(mesh_channelbag, '["force_invisible"]', 0, [(0, float(is_invisible))])
                 else:
                     self.messages.append(('WARNING', f'Cannot find loaded mesh "{obj_name}"'))
+                visibility = []
                 for j in range(keys_vis):  # -- Read Visibility Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_vis = reader.read_one('<f')  # -- Read Visibility
-                    if mesh is None:
+                    if mesh_obj is None:
                         continue
-                    mesh.color[3] = key_vis
-                    if j == 0:
-                        mesh.keyframe_insert(data_path='color', frame=0, index=3)
-                    mesh.keyframe_insert(data_path='color', frame=frame, index=3)
-                if mesh is not None:
-                    mesh.color[3] = 1.0
+                    visibility.append((frame, key_vis))
+                if visibility:
+                    if visibility[0][0] != 0:
+                        visibility.insert(0, (0, visibility[0][1]))
+                    animations.insert_keyframes(mesh_channelbag, 'color', 3, visibility)
+                if mesh_obj is not None:
+                    mesh_obj.color[3] = 1.0
             elif mode == 0:  # -- Texture
                 reader.skip(4)  # -- Skip 4 Bytes (Unknown, zeros)
                 tex_anim_type = reader.read_one('<l')  # -- 1-U 2-V 3-TileU 4-TileV
@@ -588,33 +583,27 @@ class WhmLoader:
                 material = self.created_materials.get(obj_name)
                 if material is not None:
                     mapping_node = materials.get_uv_offset_node(material)
-                    expected_id = 'NT' + material.name
-                    for slot in animation.slots:
-                        if slot.identifier == expected_id:
-                            break
-                    else:
-                        slot = animation.slots.new(id_type='NODETREE', name=material.name)
-                    create_animation_data(material.node_tree, slot)
+                    slot = utils.get_or_create_slot(animation, 'NODETREE', material.name, identifier='NT' + material.name)
+                    utils.bind_action_slot(material.node_tree, animation, slot)
+                    material_channelbag = utils.ensure_channelbag_exists(animation, slot)
                 else:
                     self.messages.append(('WARNING', f'Cannot find loaded material "{obj_name}"'))
+                match tex_anim_type:  # -- 1-U 2-V 3-TileU 4-TileV: input index, axis, value scale and offset
+                    case 1: input_idx, axis, scale, offset = 1, 0, 1, 0
+                    case 2: input_idx, axis, scale, offset = 1, 1, -1, 0
+                    case 3: input_idx, axis, scale, offset = 3, 0, 1, 1
+                    case 4: input_idx, axis, scale, offset = 3, 1, 1, 1
+                uv_keys = []
                 for j in range(keys_tex):  # -- Read Texture Keys
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_tex = reader.read_one('<f')
                     if material is None:
                         continue
-                    match tex_anim_type:
-                        case 1:
-                            mapping_node.inputs[1].default_value[0] = key_tex
-                            mapping_node.inputs[1].keyframe_insert(data_path='default_value', frame=frame, index=0)
-                        case 2:
-                            mapping_node.inputs[1].default_value[1] = -key_tex
-                            mapping_node.inputs[1].keyframe_insert(data_path='default_value', frame=frame, index=1)
-                        case 3:
-                            mapping_node.inputs[3].default_value[0] = key_tex + 1
-                            mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=0)
-                        case 4:
-                            mapping_node.inputs[3].default_value[1] = key_tex + 1
-                            mapping_node.inputs[3].keyframe_insert(data_path='default_value', frame=frame, index=1)
+                    uv_keys.append((frame, key_tex * scale + offset))
+                if material is not None and uv_keys:
+                    mapping_node.inputs[input_idx].default_value[axis] = uv_keys[-1][1]
+                    animations.insert_keyframes(
+                        material_channelbag, mapping_node.inputs[input_idx].path_from_id('default_value'), axis, uv_keys)
         # ---< CAMERA >---
 
         if current_chunk.version >= 2:  # -- Read Camera Data If DATADATA Chunk Version 2
@@ -630,8 +619,12 @@ class WhmLoader:
             for cam_idx in range(num_cams):  # -- Read Cameras
                 cam_name = reader.read_str()  # -- Read Camera Name
                 camera_obj = self.created_cameras.get(cam_name)
-                create_animation_data(camera_obj, animation.slots.new(id_type='OBJECT', name=cam_name))
+                if camera_obj is not None:
+                    slot = animation.slots.new(id_type='OBJECT', name=cam_name)
+                    utils.bind_action_slot(camera_obj, animation, slot)
+                    camera_channelbag = utils.ensure_channelbag_exists(animation, slot)
                 cam_pos_keys = reader.read_one('<l')  # -- Read Number Of Camera Position Keys
+                cam_locations = []
                 for _ in range(cam_pos_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     pos = reader.read_struct('<3f')
@@ -643,10 +636,14 @@ class WhmLoader:
                         @ coord_transform
                     )
                     loc, *_ = transform.decompose()
-                    camera_obj.location = loc
-                    camera_obj.keyframe_insert(data_path='location', frame=frame)
+                    cam_locations.append((frame, loc))
+                for axis in range(3 if cam_locations else 0):
+                    animations.insert_keyframes(camera_channelbag, 'location', axis, [(frame, loc[axis]) for frame, loc in cam_locations])
 
                 cam_rot_keys = reader.read_one('<l')  # -- Read Number Of Camera Rotation Keys
+                cam_rotations = []
+                if camera_obj is not None:
+                    previous = camera_obj.rotation_quaternion.copy()
                 for _ in range(cam_rot_keys):
                     frame = reader.read_one('<f') * (num_frames - 1)  # -- Read Frame Number
                     key_rot = reader.read_struct('<4f')
@@ -659,17 +656,11 @@ class WhmLoader:
                         @ coord_transform
                     )
                     new_rot = transform.to_quaternion()
-                    new_rot.make_compatible(camera_obj.rotation_quaternion)  # Fix random axis flipping
-                    camera_obj.rotation_quaternion = new_rot
-                    camera_obj.keyframe_insert(data_path='rotation_quaternion', frame=frame)
-
-        for slot in animation.slots or []:
-            channelbag = anim_utils.action_get_channelbag_for_slot(animation, slot)
-            if channelbag is None:
-                continue
-            for fcurve in channelbag.fcurves:
-                for kp in fcurve.keyframe_points:
-                    kp.interpolation = 'LINEAR'
+                    new_rot.make_compatible(previous)  # Fix random axis flipping
+                    previous = new_rot
+                    cam_rotations.append((frame, new_rot))
+                for axis in range(4 if cam_rotations else 0):
+                    animations.insert_keyframes(camera_channelbag, 'rotation_quaternion', axis, [(frame, rot[axis]) for frame, rot in cam_rotations])
 
        # ---< DATAANBV >---
 
@@ -706,26 +697,25 @@ class WhmLoader:
         self.ensure(vertex_size_id == 5 or ((num_skin_bones != 0) * 2 == vertex_size_id - 37),
                     f'Mesh "{mesh_name}": {num_skin_bones=} and {vertex_size_id=}')
 
-        vert_array = []       # -- array to store vertex data
+        mesh_data = mesh.MeshData([], [], matid_array=[])
         for _ in range(num_vertices):
             x, z, y = reader.read_struct('<3f')
-            vert_array.append((-x, -y, z))
+            mesh_data.vert_array.append((-x, -y, z))
 
         #---< SKIN >---
 
-        skin_vert_array = []  # -- array to store skin vertices
         if num_skin_bones:
+            mesh_data.skin_vert_array = []
             skin_data_warn = False
             for _ in range(num_vertices):
-                skin_vert = SkinVertice()  # -- Reset Structure
-                skin_vert.weights[:3] = reader.read_struct('<3f')  # -- Read 1st, 2nd and 3rd Bone Weight
-                skin_vert.weights[3] = 1 - sum(skin_vert.weights[:3])  # -- Calculate 4th Bone Weight
+                weights = [*reader.read_struct('<3f'), 0]  # -- Read 1st, 2nd and 3rd Bone Weight
+                weights[3] = 1 - sum(weights[:3])  # -- Calculate 4th Bone Weight
 
                 # -- Read Bones
+                bones = [None] * 4
                 for bone_slot in range(4):
                     bone_idx = reader.read_one('<B')
                     if bone_idx == 255:
-                        skin_vert.bones[bone_slot] = None
                         continue
                     bone_name = idx_to_bone_name.get(bone_idx)
                     if bone_name is None:
@@ -733,25 +723,22 @@ class WhmLoader:
                             if not skin_data_warn:
                                 self.messages.append(('WARNING', f'Mesh "{mesh_name}": bone index {bone_idx} (slot {bone_slot}) is out of range ({len(bone_array) - 1})'))
                                 skin_data_warn = True
-                            skin_vert.bones[bone_slot] = None
                             continue
                         bone_name = bone_array[bone_idx].name
-                    skin_vert.bones[bone_slot] = bone_name
+                    bones[bone_slot] = bone_name
 
-                # -- Add Vertex To Array
-                skin_vert_array.append(skin_vert)
+                mesh_data.skin_vert_array.append((tuple(bones), mathutils.Vector(weights)))
 
         #---< NORMALS >---
 
-        normal_array = []     # -- array to store normal data
+        normal_array = []
         for _ in range(num_vertices):
             x, z, y = reader.read_struct('<3f')
             normal_array.append(mathutils.Vector([-x, -y, z]))
 
         #---< UVW MAP >---
 
-        face_array = []       # -- array to store face data
-        uv_array = []        # -- array to store texture coordinates
+        uv_array = []
         for _ in range(num_vertices):
             u, v = reader.read_struct('<2f')
             uv_array.append([u, 1 - v])
@@ -764,7 +751,6 @@ class WhmLoader:
 
         num_materials = reader.read_one('<l')  # -- read number of materials
         materials = []
-        matid_array = []      # -- array to store material id's
 
         #-- read materials
         for _ in range(num_materials):
@@ -782,10 +768,10 @@ class WhmLoader:
                 x, z, y = reader.read_struct('<3H')
                 mat_faces.append((x, y, z))
                 if material:
-                    matid_array.append(len(materials) - 1)
+                    mesh_data.matid_array.append(len(materials) - 1)
                 else:
-                    matid_array.append(0)  # Default material
-            face_array.extend(mat_faces)
+                    mesh_data.matid_array.append(0)  # Default material
+            mesh_data.face_array.extend(mat_faces)
             # -- Skip 8 Bytes To Next Texture Name Length. 4 data bytes + 4 zeros
             data_min_vertex_idx, data_vertex_cnt, bytes_zero = reader.read_struct('<2Hl')
             real_min_vertex_idx = min((i for t in mat_faces for i in t), default=0)
@@ -794,7 +780,7 @@ class WhmLoader:
             self.ensure(data_min_vertex_idx == real_min_vertex_idx, f'Mesh "{mesh_name}:{texture_path}" min_vertex_idx: {data_min_vertex_idx} != {real_min_vertex_idx}')
             self.ensure(data_vertex_cnt == real_vertex_cnt, f'Mesh "{mesh_name}:{texture_path}" vertex_cnt: {data_vertex_cnt} != {real_vertex_cnt}')
 
-        self.ensure(num_polygons == len(face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(face_array)}', level='DEBUG')  # Too common to report
+        self.ensure(num_polygons == len(mesh_data.face_array), f'Mesh "{mesh_name}": {num_polygons} != {len(mesh_data.face_array)}', level='DEBUG')  # Too common to report
 
         #---< SHADOW VOLUME >---
 
@@ -833,116 +819,20 @@ class WhmLoader:
         #---[ CREATE MESH ]---
         #---------------------
 
-        #---< CREATE MESH >---
-
         if self.enable_vertex_automerge:
-            vertex_kd = mathutils.kdtree.KDTree(num_vertices)
-            for idx, v in enumerate(vert_array):
-                vertex_kd.insert(v, idx)
-            vertex_kd.balance()
-            vertex_group_by_postition = {}
-            seen_data = {}
-            idx2merged = {}
-            merged_vert_ids = []
-            for orig_vertex_idx, v in enumerate(vert_array):
-                for (co, index, dist) in vertex_kd.find_range(v, self.vertex_position_merge_threshold):
-                    if index == orig_vertex_idx:
-                        continue
-                    if index in vertex_group_by_postition:
-                        vertex_group_key = vertex_group_by_postition[index]
-                        break
-                else:
-                    vertex_group_key = vertex_group_by_postition[orig_vertex_idx] = orig_vertex_idx
-                seen_vertex_data = seen_data.setdefault(vertex_group_key, [])
-                vertex_normal = normal_array[orig_vertex_idx]
-                if num_skin_bones:
-                    skin_vert_data = skin_vert_array[orig_vertex_idx]
-                    bone_ids = tuple(skin_vert_data.bones)
-                    bone_weights = mathutils.Vector(skin_vert_data.weights)
-                else:
-                    bone_ids = 0
-                    bone_weights = mathutils.Vector.Fill(4)
-                vertex_idx = None
-                for idx, other_normal, other_bone_ids, other_bone_weights in seen_vertex_data:
-                    if (
-                        (other_normal - vertex_normal).length < self.vertex_normal_merge_threshold
-                        and bone_ids == other_bone_ids
-                        and (bone_weights - other_bone_weights).length < self.vertex_weight_merge_threshold
-                    ):
-                        vertex_idx = idx
-                        break
-                if vertex_idx is None:
-                    vertex_idx = len(merged_vert_ids)
-                    seen_vertex_data.append((vertex_idx, vertex_normal, bone_ids, bone_weights))
-                    merged_vert_ids.append(orig_vertex_idx)
-                idx2merged[orig_vertex_idx] = vertex_idx
-            vert_array = [vert_array[i] for i in merged_vert_ids]
-            skin_vert_array = [skin_vert_array[i] for i in merged_vert_ids] if num_skin_bones else []
-            old_face_array = face_array
-            face_array = []
-            split_normals = []
-            face_uv_data = []
-            seen_faces = set()
-            new_matid_array = []
-            for face_idx, face in enumerate(old_face_array):
-                new_face = [idx2merged[i] for i in face]
-                if not (new_face[0] != new_face[1] != new_face[2] != new_face[0]):
-                    continue
-                f_key = tuple(sorted(new_face))
-                if f_key in seen_faces:
-                    continue
-                seen_faces.add(f_key)
-                face_array.append(new_face)
-                split_normals.extend(normal_array[i] for i in face)
-                face_uv_data.extend(f for i in face for f in uv_array[i])
-                new_matid_array.append(matid_array[face_idx])
-            matid_array = new_matid_array
-            del normal_array
-            del uv_array
+            mesh_data = mesh.merge(
+                mesh_data, normal_array, [uv_array],
+                position_threshold=self.vertex_position_merge_threshold,
+                normal_threshold=self.vertex_normal_merge_threshold,
+                weight_threshold=self.vertex_weight_merge_threshold,
+            )
         else:
-            split_normals = [normal_array[v] for p in face_array for v in p]
-            face_uv_data = [f for p in face_array for v in p for f in uv_array[v]]
+            mesh_data = mesh.build_corners(mesh_data, normal_array, [uv_array])
+        if xref:
+            mesh_data.skin_vert_array = None
 
-        new_mesh = bpy.data.meshes.new(mesh_name)
-        new_mesh.from_pydata(vert_array, [], face_array, shade_flat=False)  # -- Create New Mesh
-
-        #---< MESH PROPERTIES >---
-
-        #new_mesh.wireColor = (color 28 89 177)												-- Set Color (Blue)
-        new_mesh.normals_split_custom_set(split_normals)
-
-        for mat in materials:  # -- Set Material
-            new_mesh.materials.append(mat)
-
-        new_mesh.polygons.foreach_set('material_index', matid_array)
-
-        obj = bpy.data.objects.new(mesh_name, new_mesh)
-        obj.parent = self.armature_obj
+        obj = mesh.create_mesh(mesh_data, materials, mesh_name, armature_obj=self.armature_obj, messages=self.messages)
         self.created_meshes[mesh_name.lower()] = obj
-
-        #---< SET BONE MESH >---
-
-        vertex_groups = {}
-        for vert_idx, vert in enumerate([] if xref else skin_vert_array):
-            for bone_weight, bone_name in zip(vert.weights, vert.bones):
-                if bone_name is None or bone_weight == 0:
-                    continue
-                vertex_group =  vertex_groups.get(bone_name)
-                if vertex_group is None:
-                    vertex_group = vertex_groups[bone_name] = obj.vertex_groups.new(name=bone_name)
-                vertex_group.add([vert_idx], bone_weight, 'REPLACE')
-
-        #---< UV MAP >---
-
-        uv_layer = new_mesh.uv_layers.new()
-        uv_layer.data.foreach_set('uv', face_uv_data)  # -- Set UVW Coordinates
-
-        # TODO capture output
-        # Note: redirect_stdout doesn't work. See https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
-        has_errors = new_mesh.validate(verbose=True)
-
-        if has_errors:
-            self.messages.append(('WARNING', f'Mesh {mesh_name} has some errors'))
 
         if self.blender_mesh_root is None:
             self.blender_mesh_root = bpy.data.collections.new('Meshes')
@@ -953,8 +843,6 @@ class WhmLoader:
                 extra_collection = bpy.data.collections.new(group_name)
                 self.model_root_collection.children.link(extra_collection)
             extra_collection.objects.link(obj)
-        armature_mod = obj.modifiers.new('Skeleton', 'ARMATURE')
-        armature_mod.object = self.armature_obj
         self.blender_mesh_root.objects.link(obj)
 
         if shadow_faces:
@@ -1065,10 +953,7 @@ class WhmLoader:
         self.bpy_context.scene.collection.children.link(self.model_root_collection)
         self.model_root_collection.objects.link(self.armature_obj)
 
-        chunk_positions = {}
-        for current_chunk in reader.iter_chunks():  # Read Chunks Until End Of File
-            chunk_positions.setdefault(current_chunk.typeid, []).append((current_chunk, reader.stream.tell()))
-            reader.skip(current_chunk.size)
+        chunk_positions = reader.index_chunks()
         self.load_all_materials(reader, chunk_positions)
         for typeid, handler in [
             ('DATASKEL', self.CH_DATASKEL),  # DATASKEL - Skeleton Data
@@ -1077,8 +962,8 @@ class WhmLoader:
             ('DATACAMS', self.CH_DATACAMS),  # DATACAMS - Cameras
             ('FOLDANIM', self.CH_FOLDANIM),  # FOLDANIM - Animations
         ]:
-            for current_chunk, pos in chunk_positions.get(typeid, []):
-                reader.stream.seek(pos)
+            for chunk_position in chunk_positions.get(typeid, ()):
+                reader.seek_chunk(chunk_position)
                 handler(reader)
 
         if self.armature_obj.pose is not None:
@@ -1119,29 +1004,7 @@ class WhmLoader:
         return res
 
     def apply_teamcolor(self, teamcolor_dict: dict):
-        teamcolor = materials.TeamcolorInfo()
-        for layer in materials.TEAMCOLORABLE_LAYERS:
-            if layer in teamcolor_dict:
-                teamcolor.colors[layer] = teamcolor_dict[layer]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = pathlib.Path(tmpdir)
-            for key in materials.TEAMCOLOR_IMAGES:
-                if (img_path := teamcolor_dict.get(key.value)) is None:
-                    continue
-                data_path = pathlib.Path(img_path)
-                if not data_path.exists():
-                    data_path = self.layout.find(data_path)
-                if not data_path:
-                    continue
-                tmpfile = tmpdir / pathlib.Path(img_path).name
-                tmpfile.write_bytes(data_path.read_bytes())
-                teamcolor.images[key] = image = bpy.data.images.load(str(tmpfile))
-                image.pack()
-                image.packed_files[-1].filepath = image.filepath_raw = str(self.unpacked_texture_folder / tmpfile.name)
-        for mat in bpy.data.materials:
-            if mat.node_tree is None:
-                continue
-            materials.apply_teamcolor(mat, teamcolor)
+        materials.apply_teamcolor_scheme(self.layout, self.unpacked_texture_folder, teamcolor_dict)
 
 
 def import_whm(module_root: pathlib.Path, target_path: pathlib.Path, teamcolor_path: pathlib.Path = None):

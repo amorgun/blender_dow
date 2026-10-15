@@ -3,7 +3,7 @@ from bpy_extras import anim_utils
 import bmesh
 import mathutils
 
-from . import props, utils, materials
+from . import animations, props, utils, materials
 
 
 class DOW_OT_setup_property(bpy.types.Operator):
@@ -512,7 +512,7 @@ class DOW_OT_batch_configure_invisible(bpy.types.Operator):
             if anim_data is not None:
                 orig_action = anim_data.action
                 anim_data.action = action
-                value = bool(get_fcurve_flag(anim_data, fcurve_data_paths, default=False))
+                value = bool(animations.get_keyframed_flag(anim_data, fcurve_data_paths, default=False))
                 anim_data.action = orig_action
             it.selected = value
         return wm.invoke_props_dialog(self, width=500)
@@ -687,13 +687,16 @@ class DOW_OT_setup_material(bpy.types.Operator):
         teamcolor_info = materials.extract_teamcolor_info(context.material)
         context.material.use_nodes = True
         node_tree = context.material.node_tree
-        node_tree.rename(context.material.name)
+        # never ID.rename() an embedded node tree: with several node groups present
+        # it corrupts bpy.data.node_groups (Blender 5.2) and crashes on file teardown
         links = node_tree.links
         node_tree.nodes.clear()
         node_final = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
         node_output = node_tree.nodes.new('ShaderNodeOutputMaterial')
         links.new(node_final.outputs[0], node_output.inputs['Surface'])
-        if self.layers_mode == 'ae':
+        # the edition layer presets only make sense for the DoW1 shader; other
+        # games rebuild with the layers they have
+        if self.layers_mode == 'ae' and material_info.material_type == materials.MaterialType.DOW1:
             layers = [
                 materials.MaterialLayers.DIFFUSE,
                 materials.MaterialLayers.SPECULAR_MASK,
@@ -701,7 +704,7 @@ class DOW_OT_setup_material(bpy.types.Operator):
                 materials.MaterialLayers.SELF_ILLUMUNATION_MASK,
                 materials.MaterialLayers.OPACITY,
             ]
-        if self.layers_mode == 'de':
+        elif self.layers_mode == 'de' and material_info.material_type == materials.MaterialType.DOW1:
             layers = [
                 materials.MaterialLayers.DIFFUSE,
                 materials.MaterialLayers.SPECULAR_MASK,
@@ -709,12 +712,16 @@ class DOW_OT_setup_material(bpy.types.Operator):
                 materials.MaterialLayers.SELF_ILLUMUNATION_COLOR,
                 materials.MaterialLayers.OPACITY,
             ]
-        if self.layers_mode != 'keep':
+        else:
+            layers = None
+        if layers is not None:
             placeholder_image = materials.create_placeholder_image()
             material_info.channel_images = {k: material_info.channel_images.get(k, placeholder_image) for k in layers}
         use_teamcolor = (
             self.teamcolor_mode == 'create'
-            or (self.teamcolor_mode == 'keep' and material_info.teamcolor_images)
+            or (self.teamcolor_mode == 'keep' and bool(
+                material_info.teamcolor_images
+                or materials.MaterialLayers.PATTERN in material_info.channel_images))
         )
         materials.setup_material(context.material, material_info, force_teamcolor=use_teamcolor)
         if use_teamcolor:
@@ -736,38 +743,6 @@ def get_animation_data_with_action(obj):
     if data is not None and data.action is not None:
         return data
     return None
-
-
-def get_fcurve_flag(anim_data, data_paths, default):
-    channelbag = anim_utils.action_get_channelbag_for_slot(anim_data.action, anim_data.action_slot)
-    if channelbag is None:
-        return default
-    for fcurve in channelbag.fcurves:
-        if fcurve.is_empty:
-            continue
-        if any(fcurve.data_path == p for p in data_paths):
-            return fcurve.keyframe_points[0].co[1]
-    return default
-
-
-def set_fcurve_flag(anim_data, data_paths, value, default, group: str, obj_name: str):
-    action = anim_data.action
-    utils.ensure_channelbag_exists(action, anim_data.action_slot)
-    channelbag = anim_utils.action_get_channelbag_for_slot(action, anim_data.action_slot)
-    fcurves = channelbag.fcurves
-    for fcurve in list(fcurves):
-        if fcurve.is_empty:
-            continue
-        if any(fcurve.data_path == p for p in data_paths):
-            fcurves.remove(fcurve)
-    if value != default:
-        fcurve = fcurves.new(data_paths[0])
-        fcurve.keyframe_points.insert(0, float(value))
-        if group is not None:
-            group_data = channelbag.groups.get(group)
-            if group_data is None:
-                group_data = action.groups.new(group)
-            fcurve.group = group_data
 
 
 def mesh_use_slotted_actions(mesh, prop_name: str):
@@ -796,7 +771,7 @@ def get_force_invisible(self):
     anim_data = get_animation_data_with_action(animated_obj)
     if anim_data is None:
         return False
-    return bool(get_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], default=False))
+    return bool(animations.get_keyframed_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], default=False))
 
 
 def set_force_invisible(self, val):
@@ -829,7 +804,7 @@ def _set_force_invisible_inner(obj, val, action=None):
             anim_data.action = action
     if anim_data.action_slot is None:
         anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name=obj.name)
-    set_fcurve_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group, obj_name=obj.name)
+    animations.set_keyframed_flag(anim_data, [f'["{prop_name}"]', f"['{prop_name}']"], val, default=False, group=fcurve_group)
     anim_data.action = final_action
 
 
@@ -837,7 +812,7 @@ def get_stale(self):
     anim_data = get_animation_data_with_action(bpy.context.active_object)
     if anim_data is None:
         return False
-    return bool(get_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], default=False))
+    return bool(animations.get_keyframed_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], default=False))
 
 
 def set_stale(self, val):
@@ -855,7 +830,7 @@ def set_stale(self, val):
         return
     if anim_data.action_slot is None:
         anim_data.action_slot = anim_data.action.slots.new(id_type='OBJECT', name='Skeleton')
-    set_fcurve_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name, obj_name=self.name)
+    animations.set_keyframed_flag(anim_data, [f'pose.bones["{self.name}"]["stale"]', f'pose.bones["{self.name}"]["Stale"]'], val, default=False, group=self.name)
 
 
 def get_autoswitch_actions(self):
@@ -1175,6 +1150,27 @@ def action_change_listener(scene, depsgraph):
 
 
 @bpy.app.handlers.persistent
+def material_slot_name_listener(scene, depsgraph):
+    """Name freshly created material action slots after their material.
+
+    Embedded material node trees keep Blender's default name — ID.rename() on an
+    embedded tree corrupts bpy.data once several node groups exist (Blender 5.2) —
+    so a slot the user creates by keyframing material nodes starts out as
+    'Shader Nodetree'. Rename it to the material as soon as it appears."""
+    if not depsgraph.id_type_updated('ACTION'):
+        return
+    for mat in bpy.data.materials:
+        tree = mat.node_tree
+        if tree is None or tree.animation_data is None:
+            continue
+        slot = tree.animation_data.action_slot
+        if slot is None:
+            continue
+        if slot.name_display.startswith('Shader Nodetree') and slot.name_display != mat.name:
+            slot.name_display = mat.name
+
+
+@bpy.app.handlers.persistent
 def init_dow_props(filename: str = ''):
     if bpy.context.scene.dow_autoswitch_actions == 'DEFAULT':
         prefs = bpy.context.preferences.addons[__package__].preferences
@@ -1262,6 +1258,7 @@ def register():
     )
     bpy.app.handlers.depsgraph_update_post.append(rename_listener)
     bpy.app.handlers.depsgraph_update_post.append(action_change_listener)
+    bpy.app.handlers.depsgraph_update_post.append(material_slot_name_listener)
     bpy.app.handlers.load_post.append(init_dow_props)
 
 
@@ -1272,7 +1269,7 @@ def unregister():
     ]
     bpy.app.handlers.depsgraph_update_post[:] = [
         h for h in bpy.app.handlers.depsgraph_update_post
-        if h not in (rename_listener, action_change_listener)
+        if h not in (rename_listener, action_change_listener, material_slot_name_listener)
     ]
     del bpy.types.ShaderNodeTexImage.dow_image_label
     del bpy.types.Scene.dow_autoswitch_actions
