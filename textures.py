@@ -2,7 +2,6 @@ import enum
 import io
 import struct
 
-import bpy
 from PIL import Image as PilImage
 
 
@@ -13,6 +12,8 @@ class DdsType(enum.Enum):
 
 
 def img2pil(bpy_image) -> PilImage:
+    import bpy
+
     texture_data = None
     if bpy_image.packed_files:
         texture_data = bpy_image.packed_file.data
@@ -60,6 +61,35 @@ def encode_dds(pil_image: PilImage, force_type: DdsType = None):
         # ((Control)label4).Text = "Self Illumination:";
         # ((Control)label5).Text = "Opacity:";
 
+_DDSD_FLAGS = 0x00081007       # CAPS | HEIGHT | WIDTH | PIXELFORMAT | LINEARSIZE
+_DDSD_MIPMAPCOUNT = 0x20000
+_DDPF_FOURCC = 0x00000004
+_DDSCAPS_TEXTURE = 0x1000
+_DOW_DDSCAPS_FLAGS = 0x401008  # TEXTURE | COMPLEX | MIPMAP
+
+
+def build_dds_header(
+    width: int,
+    height: int,
+    data_size: int,
+    fourcc: bytes,
+    num_mips: int = 0,
+    caps: int = _DDSCAPS_TEXTURE,
+    dxgi_format: int = None,
+) -> bytes:
+    """A DDS file header; fourcc b'DX10' formats append the DX10 extension
+    naming the dxgi_format"""
+    header = struct.Struct('<4s 7l 44x 2l 4s 20x 2l 12x').pack(
+        b'DDS ', 124, _DDSD_FLAGS | (_DDSD_MIPMAPCOUNT if num_mips > 0 else 0),
+        height, width, data_size, 0, num_mips,
+        32, _DDPF_FOURCC, fourcc,  # pixel format
+        caps, 0,  # ddscaps
+    )
+    if dxgi_format is not None:
+        header += struct.pack('<5I', dxgi_format, 3, 0, 1, 0)  # TEXTURE2D, one array slice
+    return header
+
+
 def write_dds(
     src: io.BufferedIOBase,
     dst: io.BufferedIOBase,
@@ -69,16 +99,8 @@ def write_dds(
     num_mips: int,
     image_format: int,
 ):
-    _DOW_DXT_FLAGS = 0x00081007 | (0x20000 if num_mips > 0 else 0)  # _DEFAULT_FLAGS | _dwF_MIPMAP | _dwF_LINEAR
-    _ddsF_FOURCC = 0x00000004
-    _DOW_DDSCAPS_FLAGS = 0x401008 # _ddscaps_F_TEXTURE | _ddscaps_F_COMPLEX | _ddscaps_F_MIPMAP_S
-    fourCC = {8: b'DXT1', 10: b'DXT3', 11: b'DXT5'}[image_format]
-    header = struct.Struct('<4s 7l 44x 2l 4s 20x 2l 12x').pack(
-        b'DDS ', 124, _DOW_DXT_FLAGS, height, width, data_size, 0, num_mips, 
-        32, _ddsF_FOURCC, fourCC,  # pixel format
-        _DOW_DDSCAPS_FLAGS, 0,  # ddscaps
-    )
-    dst.write(header)
+    fourcc = {8: b'DXT1', 10: b'DXT3', 11: b'DXT5'}[image_format]
+    dst.write(build_dds_header(width, height, data_size, fourcc, num_mips, caps=_DOW_DDSCAPS_FLAGS))
     dst.write(src.read(data_size))
 
 

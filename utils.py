@@ -1,7 +1,47 @@
 import hashlib
 import math
+import os
+import pathlib
+import tempfile
+import typing
 
 import bpy
+
+
+def set_viewport_shading(context, shading_type: str = 'MATERIAL'):
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            space = area.spaces.active
+            if space.type == 'VIEW_3D':
+                space.shading.type = shading_type
+
+
+def reset_scene():
+    bpy.ops.wm.read_homefile(app_template='')
+    for mesh in bpy.data.meshes:
+        bpy.data.meshes.remove(mesh)
+    for material in bpy.data.materials:
+        material.user_clear()
+        bpy.data.materials.remove(material)
+    for cam in bpy.data.cameras:
+        bpy.data.cameras.remove(cam)
+
+
+def create_camera(collection, name: str, matrix, angle: float, clip_start: float, clip_end: float, focus_object=None):
+    """Create a camera object the way the Dawn of War importers present cameras:
+    FOV lens, optional depth-of-field focus target, quaternion rotation mode."""
+    cam = bpy.data.cameras.new(name)
+    cam.clip_start, cam.clip_end = clip_start, clip_end
+    cam.lens_unit = 'FOV'
+    cam.angle = angle
+    if focus_object is not None:
+        cam.dof.use_dof = True
+        cam.dof.focus_object = focus_object
+    cam_obj = bpy.data.objects.new(name, cam)
+    cam_obj.matrix_basis = matrix
+    cam_obj.rotation_mode = 'QUATERNION'
+    collection.objects.link(cam_obj)
+    return cam_obj
 
 
 def console_get():
@@ -136,3 +176,153 @@ def ensure_channelbag_exists(action, slot):
         strip = layer.strips.new(type='KEYFRAME')
 
     return strip.channelbag(slot, ensure=True)
+
+
+def bind_action_slot(obj, action, slot):
+    if obj.animation_data is None:
+        obj.animation_data_create()
+    obj.animation_data.action = action
+    obj.animation_data.action_slot = slot
+
+
+def get_or_create_slot(action, id_type, name, identifier=None):
+    for slot in action.slots:
+        if identifier is not None:
+            if slot.identifier == identifier:
+                return slot
+        elif slot.target_id_type == id_type and slot.name_display == name:
+            return slot
+    return action.slots.new(id_type=id_type, name=name)
+
+
+class VirtualTree:
+    """A callback-defined file tree materialized as a temp directory one browsed level ahead"""
+
+    def __init__(self, populate: typing.Callable[[tuple[str, ...]], dict[str, bool]], prefix: str = 'blender_dow_tree_'):
+        self.populate = populate
+        self.cache = {}
+        self.tmp = tempfile.TemporaryDirectory(prefix=prefix)
+        self.root = pathlib.Path(self.tmp.name)
+        self.materialized = set()
+        self.visit(self.root)
+
+    def entries(self, parts: tuple[str, ...]) -> dict[str, bool]:
+        entries = self.cache.get(parts)
+        if entries is None:
+            entries = self.cache[parts] = self.populate(parts)
+        return entries
+
+    def materialize(self, parts: tuple[str, ...]):
+        if parts in self.materialized:
+            return
+        folder = self.root.joinpath(*parts)
+        for name, is_dir in self.entries(parts).items():
+            if is_dir:
+                (folder / name).mkdir(exist_ok=True)
+            else:
+                (folder / name).touch()
+        self.materialized.add(parts)
+
+    def visit(self, directory):
+        parts = pathlib.Path(directory).relative_to(self.root).parts
+        self.materialize(parts)
+        for name, is_dir in self.entries(parts).items():
+            if is_dir:
+                self.materialize(parts + (name,))
+
+    def cleanup(self):
+        self.tmp.cleanup()
+
+
+_browse_tree = None
+_browse_on_select = None
+_browse_draw_handler = None
+_browse_snapping_back = False
+
+
+def _browse_tree_draw():
+    """Materialize the next tree level whenever the file browser draws a directory inside it,
+    and snap the browser back when it navigates outside the tree"""
+    global _browse_snapping_back
+    params = bpy.context.space_data.params
+    if params is None or _browse_tree is None:
+        return
+    if pathlib.Path(os.fsdecode(params.directory)).is_relative_to(_browse_tree.root):
+        _browse_tree.visit(os.fsdecode(params.directory))
+    elif not _browse_snapping_back:
+        _browse_snapping_back = True
+
+        def snap_back(params=params, root=_browse_tree.root):
+            global _browse_snapping_back
+            _browse_snapping_back = False
+            try:
+                params.directory = os.fsencode(str(root))
+            except ReferenceError:  # the browser area closed before the timer fired
+                pass
+
+        bpy.app.timers.register(snap_back)
+
+
+def browse_tree(
+    populate: typing.Callable[[tuple[str, ...]], dict[str, bool]],
+    browse_operator: str,
+    **operator_args,
+) -> set:
+    """Open the file browser over a virtual tree defined by `populate`.
+
+    `browse_operator` is the bl_idname of a TreeBrowseOperator subclass; `operator_args`
+    initialize its properties (shown in the file browser side panels)."""
+    global _browse_tree, _browse_draw_handler
+    cleanup_tree()
+    _browse_tree = VirtualTree(populate)
+    _browse_draw_handler = bpy.types.SpaceFileBrowser.draw_handler_add(_browse_tree_draw, (), 'WINDOW', 'POST_PIXEL')
+    category, _, name = browse_operator.partition('.')
+    op = getattr(getattr(bpy.ops, category), name)
+    return op('INVOKE_DEFAULT', directory=str(_browse_tree.root), **operator_args)
+
+
+def cleanup_tree():
+    global _browse_tree, _browse_draw_handler
+    if _browse_draw_handler is not None:
+        bpy.types.SpaceFileBrowser.draw_handler_remove(_browse_draw_handler, 'WINDOW')
+        _browse_draw_handler = None
+    if _browse_tree is not None:
+        _browse_tree.cleanup()
+        _browse_tree = None
+
+
+def run_in_view3d(callback: typing.Callable[[], None]):
+    def run():
+        window = bpy.context.window_manager.windows[0]
+        area = next(a for a in window.screen.areas if a.type == 'VIEW_3D')
+        region = next(r for r in area.regions if r.type == 'WINDOW')
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            callback()
+
+    bpy.app.timers.register(run)
+
+
+class TreeBrowseOperator:
+    """File-selector operator over a virtual tree started by browse_tree.
+
+    Subclasses declare their own option props (drawable in file browser panels),
+    filter_glob, and on_select(relative)."""
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH', options={'SKIP_SAVE'})
+    directory: bpy.props.StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        relative = pathlib.Path(self.filepath).relative_to(_browse_tree.root)
+        cleanup_tree()
+        self.on_select(relative)
+        return {'FINISHED'}
+
+    def cancel(self, context):
+        cleanup_tree()
+
+    def on_select(self, relative: pathlib.PurePath):
+        raise NotImplementedError

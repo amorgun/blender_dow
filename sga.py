@@ -36,6 +36,28 @@ class Header2:
 
 
 @dataclasses.dataclass
+class Header5:
+    table_of_content_offset: int
+    data_offset: int
+
+    @classmethod
+    def parse(cls, stream) -> 'Header5':
+        checksum1, name, checksum2, toc_size, data_offset, toc_offset, platform = read_struct('<16s128s16s4L', stream)
+        return cls(toc_offset, data_offset)
+
+
+@dataclasses.dataclass
+class Header9:
+    table_of_content_offset: int
+    data_offset: int
+
+    @classmethod
+    def parse(cls, stream) -> 'Header9':
+        name, toc_offset, toc_size, data_offset, data_size, platform = read_struct('<128sQLQQL', stream)
+        return cls(toc_offset, data_offset)
+
+
+@dataclasses.dataclass
 class Toc25:
     """Table of content
     """
@@ -55,6 +77,25 @@ class Toc25:
 
 
 @dataclasses.dataclass
+class Toc9:
+    virtual_drive_offset: int
+    virtual_drive_count: int
+    folder_offset: int
+    folder_count: int
+    file_offset: int
+    file_count: int
+    name_buffer_offset: int
+    name_buffer_count: int
+
+    @classmethod
+    def parse(cls, stream) -> 'Toc9':
+        (drive_offset, drive_count, folder_offset, folder_count, file_offset, file_count,
+         name_offset, name_size, hash_offset, hash_size, block_size) = read_struct('<11L', stream)
+        return cls(drive_offset, drive_count, folder_offset, folder_count, file_offset, file_count,
+                   name_offset, name_size)
+
+
+@dataclasses.dataclass
 class VirtualDrive25:
     path: str
     name: str
@@ -66,6 +107,22 @@ class VirtualDrive25:
     @classmethod
     def parse(cls, stream) -> 'VirtualDrive25':
         path, name, first_folder, last_folder, first_file, last_file, unk = read_struct('<64s64sHHHH2s', stream)
+        return cls(str(path.rstrip(b'\0'), 'ascii'), str(name.rstrip(b'\0'), 'ascii'),
+                   first_folder, last_folder, first_file, last_file)
+
+
+@dataclasses.dataclass
+class VirtualDrive9:
+    path: str
+    name: str
+    first_folder: int
+    last_folder: int
+    first_file: int
+    last_file: int
+
+    @classmethod
+    def parse(cls, stream) -> 'VirtualDrive9':
+        path, name, first_folder, last_folder, first_file, last_file, root_folder = read_struct('<64s64s5L', stream)
         return cls(str(path.rstrip(b'\0'), 'ascii'), str(name.rstrip(b'\0'), 'ascii'),
                    first_folder, last_folder, first_file, last_file)
 
@@ -96,6 +153,49 @@ class FileHeader2:
     def parse(cls, stream) -> 'FileHeader2':
         data = read_struct('<5L', stream)
         return cls(*data)
+
+
+@dataclasses.dataclass
+class FileHeader5:
+    name_offset: int
+    compression_flag: int
+    data_offset: int
+    compressed_size: int
+    decompressed_size: int
+
+    @classmethod
+    def parse(cls, stream) -> 'FileHeader5':
+        name_offset, data_offset, compressed_size, decompressed_size, modified, verification, storage = read_struct('<5L2B', stream)
+        return cls(name_offset, storage, data_offset, compressed_size, decompressed_size)
+
+
+@dataclasses.dataclass
+class FolderHeader9:
+    name_offset: int
+    sub_folder_start_index: int
+    sub_folder_end_index: int
+    file_start_index: int
+    file_end_index: int
+
+    @classmethod
+    def parse(cls, stream) -> 'FolderHeader9':
+        data = read_struct('<5L', stream)
+        return cls(*data)
+
+
+@dataclasses.dataclass
+class FileHeader9:
+    name_offset: int
+    compression_flag: int
+    data_offset: int
+    compressed_size: int
+    decompressed_size: int
+
+    @classmethod
+    def parse(cls, stream) -> 'FileHeader9':
+        (name_offset, hash_name_offset, data_offset, compressed_size, decompressed_size,
+         modified, verification, storage, crc) = read_struct('<LLQLLLBBL', stream)
+        return cls(name_offset, storage, data_offset, compressed_size, decompressed_size)
 
 
 @dataclasses.dataclass
@@ -169,13 +269,16 @@ class SgaArchive:
             magic, version_major, version_minor = read_struct('<8s2H', f)
             assert magic == b'_ARCHIVE'
             header_cls = {
-                (2, 0): Header2
+                (2, 0): Header2,
+                (5, 0): Header5,
+                (9, 0): Header9,
             }[version_major, version_minor]
             header = header_cls.parse(f)
-            
+
             toc_cls = {
                 (2, 0): Toc25,
                 (5, 0): Toc25,
+                (9, 0): Toc9,
             }[version_major, version_minor]
             f.seek(header.table_of_content_offset)
             toc = toc_cls.parse(f)
@@ -183,6 +286,7 @@ class SgaArchive:
             virtual_drive_cls = {
                 (2, 0): VirtualDrive25,
                 (5, 0): VirtualDrive25,
+                (9, 0): VirtualDrive9,
             }[version_major, version_minor]
             f.seek(header.table_of_content_offset + toc.virtual_drive_offset)
             drives = [virtual_drive_cls.parse(f) for _ in range(toc.virtual_drive_count)]
@@ -190,12 +294,15 @@ class SgaArchive:
             folder_cls = {
                 (2, 0): FolderHeader25,
                 (5, 0): FolderHeader25,
+                (9, 0): FolderHeader9,
             }[version_major, version_minor]
             f.seek(header.table_of_content_offset + toc.folder_offset)
             folders = [folder_cls.parse(f) for _ in range(toc.folder_count)]
 
             file_cls = {
                 (2, 0): FileHeader2,
+                (5, 0): FileHeader5,
+                (9, 0): FileHeader9,
             }[version_major, version_minor]
             f.seek(header.table_of_content_offset + toc.file_offset)
             files = [file_cls.parse(f) for _ in range(toc.file_count)]
@@ -382,6 +489,10 @@ class SgaPath:
     def __rtruediv__(self, other) -> 'SgaPath':
         return SgaPath(self.sga, other / self.impl)
     
+    @property
+    def parent(self) -> 'SgaPath':
+        return SgaPath(self.sga, self.impl.parent)
+
     @property
     def name(self) -> str:
         return self.impl.name
